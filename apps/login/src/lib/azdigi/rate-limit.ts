@@ -76,12 +76,18 @@ type Limiters = {
 
 const store = globalThis as typeof globalThis & { __azdigiLimiters?: Limiters };
 
+function limitFromEnv(name: string, fallback: number): number {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
 export const limiters: Limiters = (store.__azdigiLimiters ??= {
-  // code sends: 3 per login name and 20 per client IP in 10 minutes
-  otpSendPerLogin: new SlidingWindowLimiter(3, TEN_MINUTES),
-  otpSendPerIp: new SlidingWindowLimiter(20, TEN_MINUTES),
-  // code attempts: 3 per user in 10 minutes, below Zitadel's maxOtpAttempts (5) which locks the user for good
-  otpVerifyPerUser: new SlidingWindowLimiter(3, TEN_MINUTES),
+  // code sends: 3 per login name and 20 per client IP in 10 minutes (AZDIGI_OTP_SEND_PER_LOGIN / _PER_IP override)
+  otpSendPerLogin: new SlidingWindowLimiter(limitFromEnv("AZDIGI_OTP_SEND_PER_LOGIN", 3), TEN_MINUTES),
+  otpSendPerIp: new SlidingWindowLimiter(limitFromEnv("AZDIGI_OTP_SEND_PER_IP", 20), TEN_MINUTES),
+  // code attempts: 2 per user in 10 minutes — Zitadel v4.11 locks the user on the 3rd wrong code (observed 04/10/2026
+  // with maxOtpAttempts=5) and never unlocks by itself, so the soft limit must sit below that
+  otpVerifyPerUser: new SlidingWindowLimiter(limitFromEnv("AZDIGI_OTP_VERIFY_PER_USER", 2), TEN_MINUTES),
 });
 
 export function resetLimiters() {

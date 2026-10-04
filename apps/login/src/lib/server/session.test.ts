@@ -142,16 +142,15 @@ describe("updateOrCreateSession", () => {
     expect((res as any).error).toMatch(/^tooManyCodeRequests/);
   });
 
-  test("code attempts: wrong codes are mapped with the attempts left, the 4th attempt in 10 minutes is not sent to Zitadel", async () => {
+  test("code attempts: wrong codes are mapped with the attempts left, the 3rd attempt in 10 minutes is not sent to Zitadel (it would lock the user)", async () => {
     vi.mocked(zitadel.getSession).mockResolvedValue({ session: liveSession() } as any);
     vi.mocked(otpFirst.decideOtpFirstForUser).mockResolvedValue({ eligible: true, altPassword: false });
     vi.mocked(cookie.setSessionAndUpdateCookie).mockRejectedValue({ rawMessage: "Code is invalid (CODE-woT0xc)" });
     const attempt = () => updateOrCreateSession({ loginName: "a@b.c", checks: create(ChecksSchema, { otpEmail: { code: "000000" } }) });
-    expect(await attempt()).toEqual({ error: 'codeInvalid:{"remaining":2}', failedAttempts: undefined });
     expect(await attempt()).toEqual({ error: 'codeInvalid:{"remaining":1}', failedAttempts: undefined });
     expect(await attempt()).toEqual({ error: 'codeInvalid:{"remaining":0}', failedAttempts: undefined });
     expect(await attempt()).toEqual({ error: 'tooManyCodeAttempts:{"minutes":10}' });
-    expect(cookie.setSessionAndUpdateCookie).toHaveBeenCalledTimes(3);
+    expect(cookie.setSessionAndUpdateCookie).toHaveBeenCalledTimes(2);
   });
 
   test("a locked user is reported as locked", async () => {
@@ -164,12 +163,11 @@ describe("updateOrCreateSession", () => {
   test("a successful code clears the attempt window", async () => {
     vi.mocked(zitadel.getSession).mockResolvedValue({ session: liveSession() } as any);
     vi.mocked(otpFirst.decideOtpFirstForUser).mockResolvedValue({ eligible: true, altPassword: false });
-    vi.mocked(cookie.setSessionAndUpdateCookie).mockRejectedValueOnce({ rawMessage: "Errors.User.Code.Invalid" }).mockRejectedValueOnce({ rawMessage: "Errors.User.Code.Invalid" }).mockResolvedValueOnce({ ...liveSession({ otpEmail: { verifiedAt: at } }), challenges: undefined } as any).mockRejectedValue({ rawMessage: "Errors.User.Code.Invalid" });
+    vi.mocked(cookie.setSessionAndUpdateCookie).mockRejectedValueOnce({ rawMessage: "Code is invalid (CODE-woT0xc)" }).mockResolvedValueOnce({ ...liveSession({ otpEmail: { verifiedAt: at } }), challenges: undefined } as any).mockRejectedValue({ rawMessage: "Code is invalid (CODE-woT0xc)" });
     const attempt = () => updateOrCreateSession({ loginName: "a@b.c", checks: create(ChecksSchema, { otpEmail: { code: "000000" } }) });
     await attempt();
-    await attempt();
     expect("sessionId" in (await attempt())).toBe(true);
-    expect(await attempt()).toEqual({ error: 'codeInvalid:{"remaining":2}', failedAttempts: undefined });
+    expect(await attempt()).toEqual({ error: 'codeInvalid:{"remaining":1}', failedAttempts: undefined });
   });
 
   test("without a cookie the session is created with a user check only, challenges come afterwards", async () => {

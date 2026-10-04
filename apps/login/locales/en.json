@@ -250,7 +250,8 @@
       "firstFactorTitle": "Sign in with a code",
       "emailFirstDescription": "We sent a one-time code to your email address. Enter it to sign in.",
       "usePassword": "Use password instead",
-      "forgotPassword": "Forgot your password?"
+      "forgotPassword": "Forgot your password?",
+      "usePasskey": "Use passkey"
     },
     "set": {
       "title": "Set up 2-Factor",

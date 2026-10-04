@@ -16,13 +16,17 @@ const base = {
 
 describe("decideOtpFirst", () => {
   test("eligible customer without a password", () => {
-    expect(decideOtpFirst(base)).toEqual({ eligible: true, altPassword: false });
+    expect(decideOtpFirst(base)).toEqual({ eligible: true, altPassword: false, altPasskey: false });
   });
-  test("eligible customer with a password offers it as an alternative", () => {
+  test("eligible customer with a password offers it as an alternative; a passkey only when the policy allows it", () => {
     expect(decideOtpFirst({ ...base, authMethods: [AuthenticationMethodType.PASSWORD, AuthenticationMethodType.OTP_EMAIL] })).toEqual({
       eligible: true,
       altPassword: true,
+      altPasskey: false,
     });
+    const withPasskey = [AuthenticationMethodType.PASSKEY, AuthenticationMethodType.OTP_EMAIL];
+    expect(decideOtpFirst({ ...base, authMethods: withPasskey }).eligible && (decideOtpFirst({ ...base, authMethods: withPasskey }) as any).altPasskey).toBe(false);
+    expect((decideOtpFirst({ ...base, loginSettings: { forceMfa: false, passkeysType: 1 } as any, authMethods: withPasskey }) as any).altPasskey).toBe(true);
   });
   test("refusals: org, forceMfa, missing method, unverified email, locked user, missing settings", () => {
     expect(decideOtpFirst({ ...base, otpFirstOrg: false })).toEqual({ eligible: false, reason: "org" });
@@ -38,6 +42,9 @@ describe("otpFirstParams", () => {
   test("carries loginName, altPassword, organization and requestId", () => {
     expect(otpFirstParams({ loginName: "a@b.c", organization: "o", requestId: "oidc_1", altPassword: true }).toString()).toBe(
       "loginName=a%40b.c&altPassword=true&organization=o&requestId=oidc_1",
+    );
+    expect(otpFirstParams({ loginName: "a@b.c", altPassword: false, altPasskey: true }).toString()).toBe(
+      "loginName=a%40b.c&altPassword=false&altPasskey=true",
     );
   });
 });

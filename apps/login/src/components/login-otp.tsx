@@ -33,6 +33,8 @@ type Props = {
   loginSettings?: LoginSettings;
   /** AZDIGI: offer the password as an alternative when the code is the first factor and the user has one */
   altPassword?: boolean;
+  /** AZDIGI: offer the passkey as an alternative when the user registered one */
+  altPasskey?: boolean;
   /** AZDIGI: channel choice (email · Zalo · SMS) when the user has a verified phone and SMS delivery is enabled */
   channels?: { current: OtpChannel; phoneMasked: string };
 };
@@ -50,6 +52,7 @@ export function LoginOTP({
   code,
   loginSettings,
   altPassword = false,
+  altPasskey = false,
   channels,
 }: Props) {
   const t = useTranslations("otp");
@@ -200,13 +203,14 @@ export function LoginOTP({
     router.push("/password/set?" + params);
   }
 
-  function goToPassword() {
+  function goTo(path: "/password" | "/passkey") {
     const params = new URLSearchParams();
     if (loginName) params.append("loginName", loginName);
     if (sessionId) params.append("sessionId", sessionId);
     if (organization) params.append("organization", organization);
     if (requestId) params.append("requestId", requestId);
-    router.push("/password?" + params);
+    if (path === "/passkey" && altPassword) params.append("altPassword", "true");
+    router.push(path + "?" + params);
   }
 
   function setCodeAndContinue(values: Inputs) {
@@ -299,11 +303,21 @@ export function LoginOTP({
         )}
 
         <div className="mt-8 flex w-full flex-row items-center">
-          {altPassword ? (
+          {altPassword || altPasskey ? (
             <div className="flex flex-col items-start gap-1">
-              <Button type="button" variant={ButtonVariants.Secondary} onClick={goToPassword} data-testid="password-button">
-                <Translated i18nKey="verify.usePassword" namespace="otp" />
-              </Button>
+              <div className="flex flex-row gap-2">
+                {altPasskey && (
+                  <Button type="button" variant={ButtonVariants.Secondary} onClick={() => goTo("/passkey")} data-testid="passkey-button">
+                    <Translated i18nKey="verify.usePasskey" namespace="otp" />
+                  </Button>
+                )}
+                {altPassword && (
+                  <Button type="button" variant={ButtonVariants.Secondary} onClick={() => goTo("/password")} data-testid="password-button">
+                    <Translated i18nKey="verify.usePassword" namespace="otp" />
+                  </Button>
+                )}
+              </div>
+              {altPassword && (
               <button
                 type="button"
                 disabled={loading}
@@ -313,6 +327,7 @@ export function LoginOTP({
               >
                 <Translated i18nKey="verify.forgotPassword" namespace="otp" />
               </button>
+              )}
             </div>
           ) : (
             <BackButton data-testid="back-button" />

@@ -250,7 +250,8 @@
       "firstFactorTitle": "Đăng nhập bằng mã",
       "emailFirstDescription": "Chúng tôi đã gửi mã dùng một lần tới email của bạn. Nhập mã để đăng nhập.",
       "usePassword": "Dùng mật khẩu",
-      "forgotPassword": "Quên mật khẩu?"
+      "forgotPassword": "Quên mật khẩu?",
+      "usePasskey": "Dùng passkey"
     },
     "set": {
       "title": "Thiết lập xác thực 2 lớp",

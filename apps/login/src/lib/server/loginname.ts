@@ -389,6 +389,7 @@ export async function sendLoginname(command: SendLoginnameCommand) {
               otpFirst.altPassword &&
               !!userLoginSettings?.allowLocalAuthentication &&
               !!userLoginSettings?.allowUsernamePassword,
+            altPasskey: otpFirst.altPasskey && !!userLoginSettings?.allowLocalAuthentication,
           }),
       };
     }

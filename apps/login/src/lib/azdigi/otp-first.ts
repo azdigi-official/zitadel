@@ -1,4 +1,4 @@
-import { LoginSettings } from "@zitadel/proto/zitadel/settings/v2/login_settings_pb";
+import { LoginSettings, PasskeysType } from "@zitadel/proto/zitadel/settings/v2/login_settings_pb";
 import { HumanUser, UserState } from "@zitadel/proto/zitadel/user/v2/user_pb";
 import { AuthenticationMethodType } from "@zitadel/proto/zitadel/user/v2/user_service_pb";
 import { getLoginSettings, listAuthenticationMethodTypes, ServiceConfig } from "../zitadel";
@@ -9,7 +9,7 @@ import { isOtpFirstOrg } from "./org-lookup";
  * policy does not force MFA, who has the OTP_EMAIL method and a verified email, and who is active.
  */
 export type OtpFirstDecision =
-  | { eligible: true; altPassword: boolean }
+  | { eligible: true; altPassword: boolean; altPasskey: boolean }
   | { eligible: false; reason: "org" | "forceMfa" | "no-otp-email-method" | "email-unverified" | "user-state" };
 
 export type OtpFirstInput = {
@@ -36,7 +36,11 @@ export function decideOtpFirst({ otpFirstOrg, loginSettings, authMethods, emailV
   if (userState !== undefined && userState !== UserState.ACTIVE) {
     return { eligible: false, reason: "user-state" };
   }
-  return { eligible: true, altPassword: authMethods.includes(AuthenticationMethodType.PASSWORD) };
+  return {
+    eligible: true,
+    altPassword: authMethods.includes(AuthenticationMethodType.PASSWORD),
+    altPasskey: authMethods.includes(AuthenticationMethodType.PASSKEY) && loginSettings.passkeysType === PasskeysType.ALLOWED,
+  };
 }
 
 /** Same decision from live data (fresh settings, allow-list lookup, auth methods). */
@@ -78,13 +82,16 @@ export function otpFirstParams({
   organization,
   requestId,
   altPassword,
+  altPasskey = false,
 }: {
   loginName: string;
   organization?: string;
   requestId?: string;
   altPassword: boolean;
+  altPasskey?: boolean;
 }): URLSearchParams {
   const params = new URLSearchParams({ loginName, altPassword: `${altPassword}` });
+  if (altPasskey) params.append("altPasskey", "true");
   if (organization) params.append("organization", organization);
   if (requestId) params.append("requestId", requestId);
   return params;

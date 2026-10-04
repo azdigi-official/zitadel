@@ -243,6 +243,15 @@ export async function updateOrCreateSession(options: UpdateSessionCommand): Prom
     userId = current.factors.user.id;
     const organizationId = current.factors.user.organizationId;
 
+    // the soft attempt limit comes first: a 3rd wrong code would lock the user in Zitadel
+    if (triesOtpCode) {
+      const attempts = limiters.otpVerifyPerUser.hit(`user:${userId}`);
+      if (!attempts.allowed) {
+        console.warn("[azdigi] OTP verify rate limited", { userId, organizationId });
+        return { error: t("tooManyCodeAttempts", { minutes: Math.max(1, Math.ceil(attempts.retryAfterMs / 60000)) }) };
+      }
+    }
+
     if (!hasVerifiedFirstFactor(current)) {
       // an OTP as the first factor: only for eligible users of allow-listed organisations
       const userResponse = await getUserByID({ serviceConfig, userId }).catch(() => undefined);
@@ -254,6 +263,11 @@ export async function updateOrCreateSession(options: UpdateSessionCommand): Prom
         humanUser: user?.type.case === "human" ? user.type.value : undefined,
         userState: user?.state,
       });
+      if (!decision.eligible && decision.reason === "user-state") {
+        console.warn("[azdigi] OTP-first refused", { userId, organizationId, reason: decision.reason });
+        const unlockAt = await unlockEtaForUser(serviceConfig, userId);
+        return { error: unlockAt ? t("userLockedUntil", { time: unlockAt }) : t("userLocked"), locked: true };
+      }
       if (!decision.eligible) {
         console.warn("[azdigi] OTP-first refused", { userId, organizationId, reason: decision.reason });
         return {
@@ -278,13 +292,6 @@ export async function updateOrCreateSession(options: UpdateSessionCommand): Prom
       }
     }
 
-    if (triesOtpCode) {
-      const attempts = limiters.otpVerifyPerUser.hit(`user:${userId}`);
-      if (!attempts.allowed) {
-        console.warn("[azdigi] OTP verify rate limited", { userId, organizationId });
-        return { error: t("tooManyCodeAttempts", { minutes: Math.max(1, Math.ceil(attempts.retryAfterMs / 60000)) }) };
-      }
-    }
   }
 
   const loginSettings = await getLoginSettings({ serviceConfig, organization });

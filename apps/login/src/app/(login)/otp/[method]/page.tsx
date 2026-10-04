@@ -39,6 +39,7 @@ export default async function Page(props: {
     organization,
     code,
     altPassword,
+    altPasskey,
   } = searchParams;
 
   const { method } = params;
@@ -170,6 +171,7 @@ export default async function Page(props: {
             host={host}
             code={code}
             altPassword={altPassword === "true"}
+            altPasskey={altPasskey === "true"}
             channels={channels}
           ></LoginOTP>
         )}
