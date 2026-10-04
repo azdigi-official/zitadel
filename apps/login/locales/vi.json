@@ -261,6 +261,18 @@
       "required": {
         "code": "Trường này là bắt buộc"
       }
+    },
+    "channel": {
+      "title": "Nhận mã qua",
+      "email": "Email",
+      "zalo": "Zalo ({phone})",
+      "sms": "SMS ({phone})",
+      "errors": {
+        "unknownChannel": "Kênh không hợp lệ.",
+        "noSession": "Không tìm thấy phiên. Hãy nhập tên đăng nhập trước.",
+        "phoneNotVerified": "Tài khoản chưa có số điện thoại đã xác minh.",
+        "couldNotStore": "Không lưu được kênh. Hãy thử lại."
+      }
     }
   },
   "passkey": {

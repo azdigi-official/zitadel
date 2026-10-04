@@ -17,6 +17,8 @@ import { TextInput } from "./input";
 import { Spinner } from "./spinner";
 import { Translated } from "./translated";
 import { AutoSubmitForm } from "./auto-submit-form";
+import { OtpChannelPicker } from "./azdigi/otp-channel-picker";
+import { OtpChannel } from "@/lib/azdigi/otp-channel";
 
 // either loginName or sessionId must be provided
 type Props = {
@@ -30,6 +32,8 @@ type Props = {
   loginSettings?: LoginSettings;
   /** AZDIGI: offer the password as an alternative when the code is the first factor and the user has one */
   altPassword?: boolean;
+  /** AZDIGI: channel choice (email · Zalo · SMS) when the user has a verified phone and SMS delivery is enabled */
+  channels?: { current: OtpChannel; phoneMasked: string };
 };
 
 type Inputs = {
@@ -45,6 +49,7 @@ export function LoginOTP({
   code,
   loginSettings,
   altPassword = false,
+  channels,
 }: Props) {
   const t = useTranslations("otp");
 
@@ -222,6 +227,17 @@ export function LoginOTP({
     <>
       {samlData && <AutoSubmitForm url={samlData.url} fields={samlData.fields} />}
       <form className="w-full">
+        {channels && ["email", "sms"].includes(method) && (
+          <OtpChannelPicker
+            current={channels.current}
+            phoneMasked={channels.phoneMasked}
+            loginName={loginName}
+            organization={organization}
+            requestId={requestId}
+            altPassword={altPassword}
+            onError={setError}
+          />
+        )}
         {["email", "sms"].includes(method) && (
           <Alert type={AlertType.INFO}>
             <div className="flex flex-row">

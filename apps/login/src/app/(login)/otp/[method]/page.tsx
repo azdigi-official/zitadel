@@ -3,13 +3,14 @@ import { DynamicTheme } from "@/components/dynamic-theme";
 import { LoginOTP } from "@/components/login-otp";
 import { Translated } from "@/components/translated";
 import { UserAvatar } from "@/components/user-avatar";
+import { maskPhone, OTP_CHANNEL_METADATA_KEY, OtpChannel, smsChannelsEnabled } from "@/lib/azdigi/otp-channel";
 import { decideOtpFirstForUser } from "@/lib/azdigi/otp-first";
 import { hasVerifiedFirstFactor } from "@/lib/azdigi/policy";
 import { getSessionCookieById } from "@/lib/cookies";
 import { getPublicHost } from "@/lib/server/host";
 import { getServiceConfig } from "@/lib/service-url";
 import { loadMostRecentSession } from "@/lib/session";
-import { getBrandingSettings, getLoginSettings, getSession, getUserByID } from "@/lib/zitadel";
+import { getBrandingSettings, getLoginSettings, getSession, getUserByID, getUserMetadata } from "@/lib/zitadel";
 import { Metadata } from "next";
 import { getTranslations } from "next-intl/server";
 import { headers } from "next/headers";
@@ -60,12 +61,16 @@ export default async function Page(props: {
     });
   }
 
+  const user = session?.factors?.user?.id
+    ? await getUserByID({ serviceConfig, userId: session.factors.user.id })
+        .then((resp) => resp.user)
+        .catch(() => undefined)
+    : undefined;
+  const humanUser = user?.type.case === "human" ? user.type.value : undefined;
+
   // AZDIGI: a code as the first factor only for eligible users; everyone else is sent to the password page
   // (the server action enforces the same rule, this just avoids a dead screen)
   if (session?.factors?.user?.id && ["email", "sms"].includes(method ?? "") && !hasVerifiedFirstFactor(session)) {
-    const user = await getUserByID({ serviceConfig, userId: session.factors.user.id })
-      .then((resp) => resp.user)
-      .catch(() => undefined);
     const decision = await decideOtpFirstForUser({
       serviceConfig,
       userId: session.factors.user.id,
@@ -83,6 +88,17 @@ export default async function Page(props: {
       }
       redirect("/password?" + params);
     }
+  }
+
+  // AZDIGI: channel choice (email · Zalo · SMS) for users with a verified phone once SMS delivery is enabled
+  let channels: { current: OtpChannel; phoneMasked: string } | undefined;
+  if (session?.factors?.user?.id && smsChannelsEnabled() && humanUser?.phone?.isVerified) {
+    const stored = await getUserMetadata({ serviceConfig, userId: session.factors.user.id, key: OTP_CHANNEL_METADATA_KEY }).catch(
+      () => undefined,
+    );
+    // the screen shows which channel is in use: /otp/sms carries zalo or sms (whatever was stored), /otp/email is email
+    const current: OtpChannel = method === "sms" ? (stored === "zalo" ? "zalo" : "sms") : "email";
+    channels = { current, phoneMasked: maskPhone(humanUser.phone.phone) };
   }
 
   // email links do not come with organization, thus we need to use the session's organization
@@ -154,6 +170,7 @@ export default async function Page(props: {
             host={host}
             code={code}
             altPassword={altPassword === "true"}
+            channels={channels}
           ></LoginOTP>
         )}
       </div>

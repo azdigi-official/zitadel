@@ -261,6 +261,18 @@
       "required": {
         "code": "This field is required"
       }
+    },
+    "channel": {
+      "title": "Receive the code via",
+      "email": "Email",
+      "zalo": "Zalo ({phone})",
+      "sms": "SMS ({phone})",
+      "errors": {
+        "unknownChannel": "Unknown channel.",
+        "noSession": "Could not find a session. Enter your login name first.",
+        "phoneNotVerified": "No verified phone number on this account.",
+        "couldNotStore": "Could not save the channel. Try again."
+      }
     }
   },
   "passkey": {

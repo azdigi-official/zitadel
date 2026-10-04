@@ -147,6 +147,29 @@ export async function listIDPLinks({ serviceConfig, userId }: WithServiceConfig<
   return userService.listIDPLinks({ userId }, {});
 }
 
+/** AZDIGI: user metadata through the v2 user service (the login client may write it; checked 04/10/2026). */
+export async function setUserMetadata({
+  serviceConfig,
+  userId,
+  key,
+  value,
+}: WithServiceConfig<{ userId: string; key: string; value: string }>) {
+  const userService: Client<typeof UserService> = await createServiceForHost(UserService, serviceConfig);
+
+  return userService.setUserMetadata({ userId, metadata: [{ key, value: new TextEncoder().encode(value) }] }, {});
+}
+
+export async function getUserMetadata({ serviceConfig, userId, key }: WithServiceConfig<{ userId: string; key: string }>) {
+  const userService: Client<typeof UserService> = await createServiceForHost(UserService, serviceConfig);
+
+  const resp = await userService.listUserMetadata(
+    { userId, filters: [{ filter: { case: "keyFilter", value: { key } } }] },
+    {},
+  );
+  const entry = resp.metadata?.find((m) => m.key === key);
+  return entry?.value ? new TextDecoder().decode(entry.value) : undefined;
+}
+
 export async function addOTPEmail({ serviceConfig, userId }: WithServiceConfig<{ userId: string }>) {
   const userService: Client<typeof UserService> = await createServiceForHost(UserService, serviceConfig);
 
