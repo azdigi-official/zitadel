@@ -57,6 +57,9 @@ export async function getHostedLoginTranslation({
   const callback = settingsService
     .getHostedLoginTranslation(
       {
+        // AZDIGI: only the overrides set on the org/instance; without this the API returns Zitadel's complete English
+        // bundle for any locale it does not ship (vi), which would overwrite our translation
+        ignoreInheritance: true,
         level: organization
           ? {
               case: "organizationId",

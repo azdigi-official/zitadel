@@ -1,5 +1,6 @@
 import "@/styles/globals.scss";
 
+import { FooterLinks } from "@/components/azdigi/footer-links";
 import { BackgroundWrapper } from "@/components/background-wrapper";
 import { LanguageProvider } from "@/components/language-provider";
 import { LanguageSwitcher } from "@/components/language-switcher";
@@ -10,7 +11,7 @@ import { Lato } from "next/font/google";
 import React, { Suspense } from "react";
 import ThemeSwitch from "@/components/theme-switch";
 import type { Metadata } from "next";
-import { getTranslations } from "next-intl/server";
+import { getLocale, getTranslations } from "next-intl/server";
 
 const lato = Lato({
   weight: ["400", "700", "900"],
@@ -23,8 +24,10 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const locale = await getLocale();
+
   return (
-    <html className={`${lato.className}`} suppressHydrationWarning>
+    <html lang={locale} className={`${lato.className}`} suppressHydrationWarning>
       <head />
       <body>
         <ThemeProvider>
@@ -55,6 +58,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                       <LanguageSwitcher />
                       <ThemeSwitch />
                     </div>
+                    <FooterLinks />
                   </div>
                 </BackgroundWrapper>
               </LanguageProvider>

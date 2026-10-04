@@ -1,6 +1,9 @@
 "use client";
 
 import { Logo } from "@/components/logo";
+
+// AZDIGI: static fallback while the branding policy has no logo (public/azdigi/logo.png, served under the base path)
+const AZDIGI_LOGO = `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/azdigi/logo.png`;
 import { BrandingSettings } from "@zitadel/proto/zitadel/settings/v2/branding_settings_pb";
 import React, { ReactNode, Children } from "react";
 import { ThemeWrapper } from "./theme-wrapper";
@@ -56,10 +59,10 @@ export function DynamicTheme({
                     <div className="flex w-1/2 flex-col justify-center p-4 lg:p-8 bg-gradient-to-br from-primary-50 to-primary-100 dark:from-primary-900/20 dark:to-primary-800/20">
                       <div className="max-w-[440px] mx-auto space-y-8">
                         {/* Logo and branding */}
-                        {branding && (
+                        {(
                           <Logo
-                            lightSrc={branding.lightTheme?.logoUrl}
-                            darkSrc={branding.darkTheme?.logoUrl}
+                            lightSrc={branding?.lightTheme?.logoUrl || AZDIGI_LOGO}
+                            darkSrc={branding?.darkTheme?.logoUrl || AZDIGI_LOGO}
                             height={150}
                             width={150}
                           />
@@ -100,10 +103,10 @@ export function DynamicTheme({
                 <Card>
                   <div className="mx-auto flex flex-col items-center space-y-8">
                     <div className="relative flex flex-row items-center justify-center -mb-4">
-                      {branding && (
+                      {(
                         <Logo
-                          lightSrc={branding.lightTheme?.logoUrl}
-                          darkSrc={branding.darkTheme?.logoUrl}
+                          lightSrc={branding?.lightTheme?.logoUrl || AZDIGI_LOGO}
+                          darkSrc={branding?.darkTheme?.logoUrl || AZDIGI_LOGO}
                           height={150}
                           width={150}
                         />

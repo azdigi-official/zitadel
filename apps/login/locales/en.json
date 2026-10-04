@@ -355,7 +355,8 @@
       "userNotFound": "User not found in the system",
       "couldNotLinkIDP": "Could not link IDP to user",
       "couldNotRegisterUser": "Could not register user"
-    }
+    },
+    "help": "Help"
   },
   "invite": {
     "title": "Invite User",
