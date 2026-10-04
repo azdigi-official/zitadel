@@ -35,6 +35,8 @@ type Props = {
   requestId?: string;
   loginSettings?: LoginSettings;
   idpCount: number;
+  /** AZDIGI: the organisation signs customers in with an email code; offer "email code" first, no password needed */
+  otpFirst?: boolean;
 };
 
 export function RegisterForm({
@@ -46,7 +48,9 @@ export function RegisterForm({
   requestId,
   loginSettings,
   idpCount = 0,
+  otpFirst = false,
 }: Props) {
+  const availableMethods: AuthenticationMethod[] = otpFirst ? [AuthenticationMethod.Otp, ...methods] : methods;
   const { register, handleSubmit, formState } = useForm<Inputs>({
     mode: "onChange",
     defaultValues: {
@@ -59,7 +63,7 @@ export function RegisterForm({
   const t = useTranslations("register");
 
   const [loading, setLoading] = useState<boolean>(false);
-  const [selected, setSelected] = useState<AuthenticationMethod>(methods[0]);
+  const [selected, setSelected] = useState<AuthenticationMethod>(otpFirst ? AuthenticationMethod.Otp : methods[0]);
   const [error, setError] = useState<string>("");
   const [samlData, setSamlData] = useState<{ url: string; fields: Record<string, string> } | null>(null);
 
@@ -74,6 +78,7 @@ export function RegisterForm({
         lastName: values.lastname,
         organization: organization,
         requestId: requestId,
+        method: selected === AuthenticationMethod.Otp ? "otp" : "passkey",
       });
 
       handleServerActionResponse(response, router, setSamlData, setError);
@@ -155,18 +160,19 @@ export function RegisterForm({
         {(legal?.tosLink || legal?.privacyPolicyLink) && (
           <PrivacyPolicyCheckboxes legal={legal} onChange={setTosAndPolicyAccepted} />
         )}
-        {/* show chooser if both methods are allowed */}
-        {loginSettings && loginSettings.allowLocalAuthentication && loginSettings.passkeysType == PasskeysType.ALLOWED && (
-          <>
-            <p className="ztdl-p mb-6 mt-4 block text-left">
-              <Translated i18nKey="selectMethod" namespace="register" />
-            </p>
+        {/* show chooser if both methods are allowed (AZDIGI: or when the email code is offered) */}
+        {loginSettings &&
+          ((loginSettings.allowLocalAuthentication && loginSettings.passkeysType == PasskeysType.ALLOWED) || otpFirst) && (
+            <>
+              <p className="ztdl-p mb-6 mt-4 block text-left">
+                <Translated i18nKey="selectMethod" namespace="register" />
+              </p>
 
-            <div className="pb-4">
-              <AuthenticationMethodRadio selected={selected} selectionChanged={setSelected} />
-            </div>
-          </>
-        )}
+              <div className="pb-4">
+                <AuthenticationMethodRadio selected={selected} selectionChanged={setSelected} methods={availableMethods} />
+              </div>
+            </>
+          )}
         {!loginSettings?.allowLocalAuthentication &&
           loginSettings?.passkeysType !== PasskeysType.ALLOWED &&
           (!loginSettings?.allowExternalIdp || !idpCount) && (
@@ -191,9 +197,11 @@ export function RegisterForm({
             disabled={loading || !canSubmit}
             onClick={handleSubmit((values) => {
               const usePasswordToContinue: boolean =
-                loginSettings?.allowLocalAuthentication && loginSettings?.passkeysType == PasskeysType.ALLOWED
-                  ? !(selected === methods[0]) // choose selection if both available
-                  : !!loginSettings?.allowLocalAuthentication; // if password is chosen
+                selected === AuthenticationMethod.Otp
+                  ? false
+                  : loginSettings?.allowLocalAuthentication && loginSettings?.passkeysType == PasskeysType.ALLOWED
+                    ? !(selected === methods[0]) // choose selection if both available
+                    : !!loginSettings?.allowLocalAuthentication; // if password is chosen
               // set password as default if only password is allowed
               return submitAndContinue(values, usePasswordToContinue);
             })}

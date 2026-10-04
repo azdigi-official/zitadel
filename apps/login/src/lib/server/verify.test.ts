@@ -2,6 +2,10 @@ import { vi, describe, expect, test, beforeEach } from "vitest";
 import { sendVerification } from "./verify";
 
 // Mock dependencies
+vi.mock("../azdigi/org-lookup", () => ({
+  isOtpFirstOrg: vi.fn(async () => false),
+}));
+
 vi.mock("@/lib/zitadel", () => ({
   verifyEmail: vi.fn(),
   verifyInviteCode: vi.fn(),

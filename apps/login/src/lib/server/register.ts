@@ -12,15 +12,24 @@ import { checkEmailVerification, checkMFAFactors } from "../verify-helper";
 import { getOrSetFingerprintId } from "../fingerprint";
 import crypto from "crypto";
 import { completeFlowOrGetUrl } from "../client";
+import { resolveOrgIdByName } from "../azdigi/org-lookup";
 
 type RegisterUserCommand = {
   email: string;
   firstName: string;
   lastName: string;
   password?: string;
+  /** AZDIGI: ignored — self-registration always lands in the organisation named by AZDIGI_REGISTER_ORG_NAME */
   organization: string;
   requestId?: string;
+  /** AZDIGI: "otp" registers without password or passkey; the email code becomes the first factor after verification */
+  method?: "otp" | "passkey" | "password";
 };
+
+/** The organisation self-registration lands in (compose AZDIGI_REGISTER_ORG_NAME, default "AZDIGI Customers"). */
+export async function registrationOrgId(serviceConfig: Parameters<typeof getLoginSettings>[0]["serviceConfig"]) {
+  return resolveOrgIdByName(serviceConfig, process.env.AZDIGI_REGISTER_ORG_NAME || "AZDIGI Customers");
+}
 
 export type RegisterUserResponse = {
   userId: string;
@@ -34,20 +43,31 @@ export async function registerUser(
   const _headers = await headers();
   const { serviceConfig } = getServiceConfig(_headers);
 
+  // AZDIGI: the client never chooses the organisation, and the policy is read fresh before creating anything
+  const organization = await registrationOrgId(serviceConfig);
+  if (!organization) {
+    return { error: t("disabled.description") };
+  }
+  const loginSettings = await getLoginSettings({ serviceConfig, organization, fresh: true });
+  if (!loginSettings?.allowRegister) {
+    return { error: t("disabled.description") };
+  }
+  if (command.method === "otp") {
+    command.password = undefined;
+  }
+
   const addResponse = await addHumanUser({
     serviceConfig,
     email: command.email,
     firstName: command.firstName,
     lastName: command.lastName,
     password: command.password ? command.password : undefined,
-    organization: command.organization,
+    organization,
   });
 
   if (!addResponse) {
     return { error: t("errors.couldNotCreateUser") };
   }
-
-  const loginSettings = await getLoginSettings({ serviceConfig, organization: command.organization });
 
   let checkPayload: any = {
     user: { search: { case: "userId", value: addResponse.userId } },
@@ -62,12 +82,26 @@ export async function registerUser(
 
   const checks = create(ChecksSchema, checkPayload);
 
-  const result = await createSessionAndUpdateCookie({
-    checks,
-    requestId: command.requestId,
-    lifetime: command.password ? loginSettings?.passwordCheckLifetime : undefined,
-  });
-  const session = result.session;
+  // AZDIGI: the user projection may lag a moment behind AddHumanUser ("User could not be found (QUERY-Dfbg2)"
+  // seen on v4.11); retry the session creation briefly instead of failing the registration
+  let result: Awaited<ReturnType<typeof createSessionAndUpdateCookie>> | undefined;
+  for (let attempt = 0; attempt < 6; attempt++) {
+    try {
+      result = await createSessionAndUpdateCookie({
+        checks,
+        requestId: command.requestId,
+        lifetime: command.password ? loginSettings?.passwordCheckLifetime : undefined,
+      });
+      break;
+    } catch (error) {
+      const notFound = (error as { code?: unknown })?.code === 5;
+      if (!notFound || attempt === 5) {
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+    }
+  }
+  const session = result?.session;
 
   if (!session || !session.factors?.user) {
     return { error: t("errors.couldNotCreateSession") };
@@ -81,6 +115,14 @@ export async function registerUser(
 
     if (command.requestId) {
       params.append("requestId", command.requestId);
+    }
+
+    // AZDIGI: email-code registration — verify the address first; verify.ts then grants otp_email and the policy
+    // sends the user to /otp/email (no passkey, no password)
+    if (command.method === "otp") {
+      params.set("userId", session.factors.user.id);
+      params.set("send", "true");
+      return { redirect: "/verify?" + params };
     }
 
     // Set verification cookie for users registering with passkey (no password)

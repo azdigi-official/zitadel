@@ -6,6 +6,8 @@ import { Translated } from "./translated";
 export enum AuthenticationMethod {
   Passkey = "passkey",
   Password = "password",
+  /** AZDIGI: email code only (OTP-first customers) */
+  Otp = "otp",
 }
 
 export const methods = [AuthenticationMethod.Passkey, AuthenticationMethod.Password];
@@ -13,9 +15,11 @@ export const methods = [AuthenticationMethod.Passkey, AuthenticationMethod.Passw
 export function AuthenticationMethodRadio({
   selected,
   selectionChanged,
+  methods: available = methods,
 }: {
   selected: any;
   selectionChanged: (value: any) => void;
+  methods?: AuthenticationMethod[];
 }) {
   return (
     <div className="w-full">
@@ -23,7 +27,7 @@ export function AuthenticationMethodRadio({
         <RadioGroup value={selected} onChange={selectionChanged}>
           <Label className="sr-only">Server size</Label>
           <div className="flex flex-row space-x-4">
-            {methods.map((method) => (
+            {available.map((method) => (
               <Radio
                 key={method}
                 value={method}
@@ -60,7 +64,27 @@ export function AuthenticationMethodRadio({
                     </svg>
                   )}
 
+                  {method === "otp" && (
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      strokeWidth="1.5"
+                      stroke="currentColor"
+                      className="mb-3 h-8 w-8"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75"
+                      />
+                    </svg>
+                  )}
+
                   <Label>
+                    {method === AuthenticationMethod.Otp && (
+                      <Translated i18nKey="methods.otp" namespace="register" />
+                    )}
                     {method === AuthenticationMethod.Passkey && (
                       <Translated i18nKey="methods.passkey" namespace="register" />
                     )}

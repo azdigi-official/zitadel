@@ -1,6 +1,7 @@
 "use server";
 
 import {
+  addOTPEmail,
   createInviteCode,
   getLoginSettings,
   getSession,
@@ -16,6 +17,7 @@ import crypto from "crypto";
 import { create } from "@zitadel/client";
 import { Session } from "@zitadel/proto/zitadel/session/v2/session_pb";
 import { ChecksSchema } from "@zitadel/proto/zitadel/session/v2/session_service_pb";
+import { AuthenticationMethodType } from "@zitadel/proto/zitadel/user/v2/user_service_pb";
 import { cookies, headers } from "next/headers";
 import { isOtpFirstOrg } from "../azdigi/org-lookup";
 import { hasVerifiedFirstFactor } from "../azdigi/policy";
@@ -120,6 +122,19 @@ export async function sendVerification(command: VerifyUserByEmailCommand) {
 
   if (!authMethodResponse || !authMethodResponse.authMethodTypes) {
     return { error: t("errors.couldNotLoadAuthenticators") };
+  }
+
+  // AZDIGI: a freshly verified customer with no method gets the email code as first factor; the login policy
+  // then sends them to /otp/email instead of the authenticator setup
+  if (
+    authMethodResponse?.authMethodTypes?.length == 0 &&
+    user.type?.case === "human" &&
+    (await isOtpFirstOrg(serviceConfig, user.details?.resourceOwner))
+  ) {
+    await addOTPEmail({ serviceConfig, userId: user.userId }).catch((error) => {
+      console.warn("[azdigi] could not add the OTP_EMAIL method after verification", { userId: user.userId, error: String(error) });
+    });
+    authMethodResponse.authMethodTypes = [AuthenticationMethodType.OTP_EMAIL];
   }
 
   // if no authmethods are found on the user, redirect to set one up

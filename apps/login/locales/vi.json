@@ -51,7 +51,9 @@
       "passkeysNotAllowed": "Không cho phép dùng passkey. Liên hệ quản trị viên để biết thêm.",
       "couldNotFindIdentityProvider": "Không tìm thấy nhà cung cấp danh tính.",
       "userNotActive": "Tài khoản không hoạt động. Liên hệ quản trị viên để biết thêm.",
-      "noUsableAuthMethod": "Tài khoản này không có phương thức đăng nhập dùng được ở đây. Liên hệ bộ phận hỗ trợ."
+      "noUsableAuthMethod": "Tài khoản này không có phương thức đăng nhập dùng được ở đây. Liên hệ bộ phận hỗ trợ.",
+      "userLocked": "Tài khoản này đã bị khoá. Liên hệ bộ phận hỗ trợ để mở khoá.",
+      "userLockedUntil": "Tài khoản này bị khoá tới khoảng {time, time, short}."
     }
   },
   "zitadel": {
@@ -150,7 +152,8 @@
       "failedPrecondition": "Điều kiện tiên quyết không thoả",
       "sessionNotValid": "Phiên không hợp lệ",
       "passwordVerificationMissing": "Chưa xác minh mật khẩu.",
-      "passwordVerificationTooOld": "Lần xác minh mật khẩu đã quá cũ. Hãy nhập lại mật khẩu."
+      "passwordVerificationTooOld": "Lần xác minh mật khẩu đã quá cũ. Hãy nhập lại mật khẩu.",
+      "accountLockedUntil": " Tài khoản bị khoá tới khoảng {time, time, short}."
     }
   },
   "idp": {
@@ -246,7 +249,8 @@
       },
       "firstFactorTitle": "Đăng nhập bằng mã",
       "emailFirstDescription": "Chúng tôi đã gửi mã dùng một lần tới email của bạn. Nhập mã để đăng nhập.",
-      "usePassword": "Dùng mật khẩu"
+      "usePassword": "Dùng mật khẩu",
+      "forgotPassword": "Quên mật khẩu?"
     },
     "set": {
       "title": "Thiết lập xác thực 2 lớp",
@@ -320,7 +324,8 @@
   "register": {
     "methods": {
       "passkey": "Passkey",
-      "password": "Mật khẩu"
+      "password": "Mật khẩu",
+      "otp": "Mã qua email"
     },
     "disabled": {
       "title": "Đăng ký đã tắt",
@@ -433,7 +438,9 @@
       "tooManyCodeRequests": "Bạn đã yêu cầu mã quá nhiều lần. Thử lại sau {minutes} phút.",
       "tooManyCodeAttempts": "Nhập sai mã quá nhiều lần. Yêu cầu mã mới sau {minutes} phút.",
       "codeInvalid": "Mã không đúng. Còn {remaining} lần thử trước khi phải lấy mã mới.",
-      "userLocked": "Tài khoản này đã bị khoá. Liên hệ bộ phận hỗ trợ để mở khoá."
+      "userLocked": "Tài khoản này đã bị khoá. Liên hệ bộ phận hỗ trợ để mở khoá.",
+      "userLockedUntil": "Tài khoản này bị khoá tới khoảng {time, time, short}.",
+      "couldNotSendResetCode": "Không gửi được mã đặt lại mật khẩu."
     }
   },
   "authenticator": {

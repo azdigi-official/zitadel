@@ -145,7 +145,7 @@ describe("updateOrCreateSession", () => {
   test("code attempts: wrong codes are mapped with the attempts left, the 4th attempt in 10 minutes is not sent to Zitadel", async () => {
     vi.mocked(zitadel.getSession).mockResolvedValue({ session: liveSession() } as any);
     vi.mocked(otpFirst.decideOtpFirstForUser).mockResolvedValue({ eligible: true, altPassword: false });
-    vi.mocked(cookie.setSessionAndUpdateCookie).mockRejectedValue({ rawMessage: "Errors.User.Code.Invalid (COMMAND-x)" });
+    vi.mocked(cookie.setSessionAndUpdateCookie).mockRejectedValue({ rawMessage: "Code is invalid (CODE-woT0xc)" });
     const attempt = () => updateOrCreateSession({ loginName: "a@b.c", checks: create(ChecksSchema, { otpEmail: { code: "000000" } }) });
     expect(await attempt()).toEqual({ error: 'codeInvalid:{"remaining":2}', failedAttempts: undefined });
     expect(await attempt()).toEqual({ error: 'codeInvalid:{"remaining":1}', failedAttempts: undefined });
@@ -156,7 +156,7 @@ describe("updateOrCreateSession", () => {
 
   test("a locked user is reported as locked", async () => {
     vi.mocked(zitadel.getSession).mockResolvedValue({ session: liveSession({ password: { verifiedAt: at } }) } as any);
-    vi.mocked(cookie.setSessionAndUpdateCookie).mockRejectedValue({ rawMessage: "Errors.User.Locked (COMMAND-SF3fg)" });
+    vi.mocked(cookie.setSessionAndUpdateCookie).mockRejectedValue({ rawMessage: "User is locked (COMMAND-S6h4R)" });
     const res = await updateOrCreateSession({ loginName: "a@b.c", checks: create(ChecksSchema, { otpEmail: { code: "000000" } }) });
     expect(res).toEqual({ error: "userLocked", locked: true });
   });

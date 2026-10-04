@@ -1,6 +1,7 @@
 "use client";
 
 import { handleServerActionResponse, completeFlowOrGetUrl } from "@/lib/client";
+import { resetPassword } from "@/lib/server/password";
 import { updateOrCreateSession } from "@/lib/server/session";
 import { create } from "@zitadel/client";
 import { RequestChallengesSchema } from "@zitadel/proto/zitadel/session/v2/challenge_pb";
@@ -182,6 +183,23 @@ export function LoginOTP({
     return response;
   }
 
+  async function forgotPassword() {
+    setError("");
+    setLoading(true);
+    const response = await resetPassword({ loginName: loginName ?? "", organization, requestId })
+      .catch(() => ({ error: t("verify.errors.couldNotSendResetCode") }))
+      .finally(() => setLoading(false));
+    if (response && "error" in response && response.error) {
+      setError(response.error);
+      return;
+    }
+    const params = new URLSearchParams();
+    if (loginName) params.append("loginName", loginName);
+    if (organization) params.append("organization", organization);
+    if (requestId) params.append("requestId", requestId);
+    router.push("/password/set?" + params);
+  }
+
   function goToPassword() {
     const params = new URLSearchParams();
     if (loginName) params.append("loginName", loginName);
@@ -282,9 +300,20 @@ export function LoginOTP({
 
         <div className="mt-8 flex w-full flex-row items-center">
           {altPassword ? (
-            <Button type="button" variant={ButtonVariants.Secondary} onClick={goToPassword} data-testid="password-button">
-              <Translated i18nKey="verify.usePassword" namespace="otp" />
-            </Button>
+            <div className="flex flex-col items-start gap-1">
+              <Button type="button" variant={ButtonVariants.Secondary} onClick={goToPassword} data-testid="password-button">
+                <Translated i18nKey="verify.usePassword" namespace="otp" />
+              </Button>
+              <button
+                type="button"
+                disabled={loading}
+                onClick={forgotPassword}
+                className="text-xs text-primary-light-500 hover:underline disabled:text-gray-400 dark:text-primary-dark-500"
+                data-testid="forgot-password-button"
+              >
+                <Translated i18nKey="verify.forgotPassword" namespace="otp" />
+              </button>
+            </div>
           ) : (
             <BackButton data-testid="back-button" />
           )}

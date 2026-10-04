@@ -7,9 +7,11 @@ import { getTranslations } from "next-intl/server";
 import { headers } from "next/headers";
 import { idpTypeToIdentityProviderType, idpTypeToSlug } from "../idp";
 
+import { timestampDate } from "@zitadel/client";
 import { PasskeysType } from "@zitadel/proto/zitadel/settings/v2/login_settings_pb";
 import { IDPLink } from "@zitadel/proto/zitadel/user/v2/idp_pb";
 import { UserState } from "@zitadel/proto/zitadel/user/v2/user_pb";
+import { estimateUnlockAt, orgKindFromSettings } from "../azdigi/lockout";
 import { isOtpFirstOrg } from "../azdigi/org-lookup";
 import { decideOtpFirst, otpFirstParams } from "../azdigi/otp-first";
 import { getServiceConfig } from "../service-url";
@@ -264,6 +266,22 @@ export async function sendLoginname(command: SendLoginnameCommand) {
       if (user.preferredLoginName !== concatLoginname || humanUser?.email?.email !== command.loginName) {
         return preventUserEnumeration(command.organization);
       }
+    }
+
+    // AZDIGI: a locked user gets the lockout message on this screen (no session, no code); the expected unlock time
+    // only while the unlock worker (M2) is on. With ignoreUnknownUsernames the account is not revealed.
+    if (user.state === UserState.LOCKED) {
+      if (userLoginSettings?.ignoreUnknownUsernames || command.ignoreUnknownUsernames) {
+        return preventUserEnumeration(command.organization);
+      }
+      const unlockAt = estimateUnlockAt(
+        user.details?.changeDate ? timestampDate(user.details.changeDate) : undefined,
+        orgKindFromSettings(userLoginSettings),
+      );
+      return {
+        error: unlockAt ? t("errors.userLockedUntil", { time: unlockAt }) : t("errors.userLocked"),
+        locked: true,
+      };
     }
 
     let session;

@@ -21,6 +21,7 @@ import { User, UserState } from "@zitadel/proto/zitadel/user/v2/user_pb";
 import { AuthenticationMethodType, SetPasswordRequestSchema } from "@zitadel/proto/zitadel/user/v2/user_service_pb";
 import { getTranslations } from "next-intl/server";
 import { headers } from "next/headers";
+import { estimateUnlockAt, orgKindFromSettings } from "../azdigi/lockout";
 import { isOtpFirstOrg } from "../azdigi/org-lookup";
 import { completeFlowOrGetUrl } from "../client";
 import { getSessionCookieById, getSessionCookieByLoginName } from "../cookies";
@@ -263,11 +264,20 @@ export async function sendPassword(
           const locked = hasLimit && error.failedAttempts >= lockoutSettings?.maxPasswordAttempts;
           const messageKey = hasLimit ? "errors.failedToAuthenticate" : "errors.failedToAuthenticateNoLimit";
 
+          // AZDIGI: expected unlock time only while the unlock worker (M2) is on
+          const unlockAt = locked
+            ? estimateUnlockAt(new Date(), orgKindFromSettings(userLoginSettings))
+            : undefined;
+
           return {
             error: t(messageKey, {
               failedAttempts: error.failedAttempts,
               maxPasswordAttempts: hasLimit ? (lockoutSettings?.maxPasswordAttempts).toString() : "?",
-              lockoutMessage: locked ? t("errors.accountLockedContactAdmin") : "",
+              lockoutMessage: locked
+                ? unlockAt
+                  ? t("errors.accountLockedUntil", { time: unlockAt })
+                  : t("errors.accountLockedContactAdmin")
+                : "",
             }),
           };
         }

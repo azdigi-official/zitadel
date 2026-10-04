@@ -37,6 +37,8 @@ export default getRequestConfig(async () => {
 
   return {
     locale,
+    // AZDIGI: times on the screens (lockout ETA) in Vietnam's zone, not the container's
+    timeZone: process.env.AZDIGI_TIME_ZONE || "Asia/Ho_Chi_Minh",
     messages: deepmerge.all([
       fallbackMessages,
       localeMessages,

@@ -68,3 +68,32 @@ export async function isOtpFirstOrg(serviceConfig: ServiceConfig, orgId: string 
 export function clearOtpFirstOrgCache() {
   delete store.__azdigiOtpFirstOrgs;
 }
+
+/** Any organisation by exact name (registration org, …), cached like the OTP-first set. */
+const byName = globalThis as typeof globalThis & { __azdigiOrgIdsByName?: Map<string, { id: string | undefined; expiresAt: number }> };
+
+export async function resolveOrgIdByName(serviceConfig: ServiceConfig, name: string, now = Date.now()): Promise<string | undefined> {
+  const cache = (byName.__azdigiOrgIdsByName ??= new Map());
+  const hit = cache.get(name);
+  if (hit && hit.expiresAt > now) {
+    return hit.id;
+  }
+  try {
+    const orgService = await createServiceForHost(OrganizationService, serviceConfig);
+    const resp = await orgService.listOrganizations(
+      { queries: [{ query: { case: "nameQuery", value: { name, method: TextQueryMethod.EQUALS } } }] },
+      {},
+    );
+    const id = resp.result?.[0]?.id;
+    cache.set(name, { id, expiresAt: now + (id ? CACHE_TTL_MS : FAILURE_TTL_MS) });
+    return id;
+  } catch (error) {
+    console.warn("[azdigi] could not resolve organisation by name", { name, error: String(error) });
+    cache.set(name, { id: hit?.id, expiresAt: now + FAILURE_TTL_MS });
+    return hit?.id;
+  }
+}
+
+export function clearOrgNameCache() {
+  delete byName.__azdigiOrgIdsByName;
+}

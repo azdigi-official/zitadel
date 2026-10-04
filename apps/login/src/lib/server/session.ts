@@ -2,6 +2,7 @@
 
 import { buildServerChallenges } from "@/lib/azdigi/challenges";
 import { clientIpFromHeaders } from "@/lib/azdigi/client-ip";
+import { estimateUnlockAt, isLockedMessage, orgKindFromSettings } from "@/lib/azdigi/lockout";
 import { decideOtpFirstForUser } from "@/lib/azdigi/otp-first";
 import { hasVerifiedFirstFactor } from "@/lib/azdigi/policy";
 import { limiters } from "@/lib/azdigi/rate-limit";
@@ -16,7 +17,7 @@ import {
   listAuthenticationMethodTypes,
   listUsers,
 } from "@/lib/zitadel";
-import { create, Duration } from "@zitadel/client";
+import { create, Duration, timestampDate } from "@zitadel/client";
 import { Challenges, RequestChallenges } from "@zitadel/proto/zitadel/session/v2/challenge_pb";
 import { Session } from "@zitadel/proto/zitadel/session/v2/session_pb";
 import { Checks, ChecksSchema } from "@zitadel/proto/zitadel/session/v2/session_service_pb";
@@ -136,18 +137,37 @@ export type UpdateSessionResult = {
   authMethods?: AuthenticationMethodType[];
 };
 
-function otpErrorToResult(error: unknown, t: Awaited<ReturnType<typeof getTranslations>>, remaining: number) {
+function otpErrorToResult(
+  error: unknown,
+  t: Awaited<ReturnType<typeof getTranslations>>,
+  remaining: number,
+  unlockAt?: Date,
+) {
   const raw: string =
     (error as any)?.rawMessage ?? (error as any)?.message ?? (typeof error === "string" ? error : "") ?? "";
-  if (raw.includes("Errors.User.Locked")) {
-    return { error: t("userLocked"), locked: true };
+  // observed on v4.11 (04/10/2026): "User is locked (COMMAND-S6h4R)" from the 4th wrong code, "Code is invalid (CODE-woT0xc)"
+  // before that; the session create for a locked user says "Errors.User.NotActive (SESSION-Gj4ko)"
+  if (isLockedMessage(raw)) {
+    return { error: unlockAt ? t("userLockedUntil", { time: unlockAt }) : t("userLocked"), locked: true };
   }
   const failedAttempts: number | undefined =
     typeof (error as any)?.failedAttempts === "number" ? (error as any).failedAttempts : undefined;
-  if (failedAttempts !== undefined || /Errors\.User\.Code|Errors\.User\.MFA\.OTP|OTP/i.test(raw)) {
+  if (failedAttempts !== undefined || /Code is invalid|CODE-|Errors\.User\.Code|Errors\.User\.MFA\.OTP/i.test(raw)) {
     return { error: t("codeInvalid", { remaining }), failedAttempts };
   }
   return undefined;
+}
+
+/** The expected unlock time for a (just) locked user, or undefined while the unlock worker is off. */
+async function unlockEtaForUser(serviceConfig: ReturnType<typeof getServiceConfig>["serviceConfig"], userId: string) {
+  const user = await getUserByID({ serviceConfig, userId })
+    .then((r) => r.user)
+    .catch(() => undefined);
+  if (!user) {
+    return undefined;
+  }
+  const settings = await getLoginSettings({ serviceConfig, organization: user.details?.resourceOwner, fresh: true }).catch(() => undefined);
+  return estimateUnlockAt(user.details?.changeDate ? timestampDate(user.details.changeDate) : undefined, orgKindFromSettings(settings));
 }
 
 function passwordParams(loginName?: string, organization?: string, requestId?: string) {
@@ -295,7 +315,7 @@ export async function updateOrCreateSession(options: UpdateSessionCommand): Prom
   } catch (error) {
     if (triesOtpCode) {
       const remaining = userId ? limiters.otpVerifyPerUser.peek(`user:${userId}`).remaining : 0;
-      const mapped = otpErrorToResult(error, t, remaining);
+      const mapped = otpErrorToResult(error, t, remaining, userId ? await unlockEtaForUser(serviceConfig, userId) : undefined);
       if (mapped) {
         return mapped;
       }
