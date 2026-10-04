@@ -1,10 +1,8 @@
 import { Cookie } from "@/lib/cookies";
-import { sendLoginname, SendLoginnameCommand } from "@/lib/server/loginname";
-import { createResponse, getLoginSettings, ServiceConfig } from "@/lib/zitadel";
-import { create } from "@zitadel/client";
-import { CreateResponseRequestSchema } from "@zitadel/proto/zitadel/saml/v2/saml_service_pb";
+import { getLoginSettings, ServiceConfig } from "@/lib/zitadel";
 import { Session } from "@zitadel/proto/zitadel/session/v2/session_pb";
-import { isSessionValid } from "./session";
+import { guardedCreateResponse, isPolicyRejected, redirectForVerdict } from "./azdigi/issue";
+import { checkSessionPolicy } from "./session";
 
 type LoginWithSAMLAndSession = {
   serviceConfig: ServiceConfig;
@@ -28,26 +26,11 @@ export async function loginWithSAMLAndSession({
   const selectedSession = sessions.find((s) => s.id === sessionId);
 
   if (selectedSession && selectedSession.id) {
-    const isValid = await isSessionValid({ serviceConfig, session: selectedSession });
+    // AZDIGI: refuse here with a precise next step instead of a blind sendLoginname
+    const verdict = await checkSessionPolicy({ serviceConfig, session: selectedSession });
 
-    if (!isValid && selectedSession.factors?.user) {
-      // if the session is not valid anymore, we need to redirect the user to re-authenticate /
-      // TODO: handle IDP intent direcly if available
-      const command: SendLoginnameCommand = {
-        loginName: selectedSession.factors.user?.loginName,
-        organization: selectedSession.factors?.user?.organizationId,
-        requestId: `saml_${samlRequest}`,
-      };
-
-      const res = await sendLoginname(command);
-
-      if (res && "redirect" in res && res?.redirect) {
-        return { redirect: res.redirect };
-      }
-
-      if (res && "samlData" in res && res?.samlData) {
-        return { samlData: res.samlData };
-      }
+    if (!verdict.ok) {
+      return { redirect: redirectForVerdict(verdict, selectedSession, `saml_${samlRequest}`) };
     }
 
     const cookie = sessionCookies.find((cookie) => cookie.id === selectedSession?.id);
@@ -60,16 +43,7 @@ export async function loginWithSAMLAndSession({
 
       // works not with _rsc request
       try {
-        const { url, binding } = await createResponse({
-          serviceConfig,
-          req: create(CreateResponseRequestSchema, {
-            samlRequestId: samlRequest,
-            responseKind: {
-              case: "session",
-              value: session,
-            },
-          }),
-        });
+        const { url, binding } = await guardedCreateResponse({ serviceConfig, samlRequestId: samlRequest, session });
         if (url && binding.case === "redirect") {
           return { redirect: url };
         } else if (url && binding.case === "post") {
@@ -86,6 +60,9 @@ export async function loginWithSAMLAndSession({
           return { error: "An error occurred!" };
         }
       } catch (error: unknown) {
+        if (isPolicyRejected(error)) {
+          return { redirect: redirectForVerdict(error.verdict, error.session ?? selectedSession, `saml_${samlRequest}`) };
+        }
         // handle already handled gracefully as these could come up if old emails with requestId are used (reset password, register emails etc.)
         console.error(error);
 

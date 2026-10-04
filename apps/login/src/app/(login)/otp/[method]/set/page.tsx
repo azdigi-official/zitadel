@@ -5,6 +5,7 @@ import { DynamicTheme } from "@/components/dynamic-theme";
 import { TotpRegister } from "@/components/totp-register";
 import { Translated } from "@/components/translated";
 import { UserAvatar } from "@/components/user-avatar";
+import { hasVerifiedFirstFactor } from "@/lib/azdigi/policy";
 import { getServiceConfig } from "@/lib/service-url";
 import { loadMostRecentSession } from "@/lib/session";
 import { addOTPEmail, addOTPSMS, getBrandingSettings, getLoginSettings, registerTOTP } from "@/lib/zitadel";
@@ -39,6 +40,19 @@ export default async function Page(props: {
 
   let totpResponse: RegisterTOTPResponse | undefined, error: Error | undefined;
   if (session && session.factors?.user?.id) {
+    // AZDIGI: enrolling a factor needs a session that already proved the user (password, passkey or IDP); a session
+    // with only a user check must not be able to add a second factor
+    if (!hasVerifiedFirstFactor(session)) {
+      console.warn("[azdigi] factor enrolment refused: session has no verified first factor", {
+        userId: session.factors.user.id,
+        organizationId: session.factors.user.organizationId,
+      });
+      const params = new URLSearchParams();
+      if (loginName) params.append("loginName", loginName);
+      if (organization) params.append("organization", organization);
+      if (requestId) params.append("requestId", requestId);
+      redirect("/loginname?" + params);
+    }
     if (method === "time-based") {
       await registerTOTP({ serviceConfig, userId: session.factors.user.id,
       })

@@ -88,14 +88,21 @@ export async function checkMFAFactors(
   authMethods: AuthenticationMethodType[],
   organization?: string,
   requestId?: string,
+  options?: { otpFirstOrg?: boolean },
 ) {
-  const availableMultiFactors = authMethods?.filter(
+  let availableMultiFactors = authMethods?.filter(
     (m: AuthenticationMethodType) =>
       m === AuthenticationMethodType.TOTP ||
       m === AuthenticationMethodType.OTP_SMS ||
       m === AuthenticationMethodType.OTP_EMAIL ||
       m === AuthenticationMethodType.U2F,
   );
+
+  // AZDIGI: in an OTP-first organisation the OTP_EMAIL method is granted automatically for passwordless sign-in,
+  // so after a password it is not a second factor the user chose and is not demanded here
+  if (options?.otpFirstOrg && session.factors?.password?.verifiedAt) {
+    availableMultiFactors = availableMultiFactors?.filter((m) => m !== AuthenticationMethodType.OTP_EMAIL);
+  }
 
   const hasAuthenticatedWithPasskey = session.factors?.webAuthN?.verifiedAt && session.factors?.webAuthN?.userVerified;
 

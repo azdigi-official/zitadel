@@ -95,8 +95,11 @@ export async function getBrandingSettings({
 export async function getLoginSettings({
   serviceConfig,
   organization,
+  fresh,
 }: WithServiceConfig<{
   organization?: string;
+  /** AZDIGI: bypass the hours-long cache for decisions that gate authentication (policy, OTP-first, isSessionValid) */
+  fresh?: boolean;
 }>) {
   const settingsService: Client<typeof SettingsService> = await createServiceForHost(SettingsService, serviceConfig);
 
@@ -104,7 +107,7 @@ export async function getLoginSettings({
     .getLoginSettings({ ctx: makeReqCtx(organization) }, {})
     .then((resp) => (resp.settings ? resp.settings : undefined));
 
-  return useCache ? cacheWrapper(callback) : callback;
+  return useCache && !fresh ? cacheWrapper(callback) : callback;
 }
 
 export async function getSecuritySettings({ serviceConfig }: WithServiceConfig) {

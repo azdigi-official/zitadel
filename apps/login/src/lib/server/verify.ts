@@ -17,6 +17,8 @@ import { create } from "@zitadel/client";
 import { Session } from "@zitadel/proto/zitadel/session/v2/session_pb";
 import { ChecksSchema } from "@zitadel/proto/zitadel/session/v2/session_service_pb";
 import { cookies, headers } from "next/headers";
+import { isOtpFirstOrg } from "../azdigi/org-lookup";
+import { hasVerifiedFirstFactor } from "../azdigi/policy";
 import { completeFlowOrGetUrl } from "../client";
 import { getSessionCookieByLoginName } from "../cookies";
 import { getOrSetFingerprintId } from "../fingerprint";
@@ -38,11 +40,18 @@ export async function verifyTOTP(code: string, loginName?: string, organization?
       organization,
     },
   }).then((session) => {
-    if (session?.factors?.user?.id) {
-      return verifyTOTPRegistration({ serviceConfig, code, userId: session.factors.user.id });
-    } else {
+    if (!session?.factors?.user?.id) {
       throw Error("No user id found in session.");
     }
+    // AZDIGI: enrolling a factor needs a session that already proved the user (password, passkey or IDP)
+    if (!hasVerifiedFirstFactor(session)) {
+      console.warn("[azdigi] factor enrolment refused: session has no verified first factor", {
+        userId: session.factors.user.id,
+        organizationId: session.factors.user.organizationId,
+      });
+      throw Error("Sign in before setting up a second factor.");
+    }
+    return verifyTOTPRegistration({ serviceConfig, code, userId: session.factors.user.id });
   });
 }
 
@@ -186,7 +195,8 @@ export async function sendVerification(command: VerifyUserByEmailCommand) {
     return { redirect: `/verify/success?${verifySuccessParams}` };
   }
 
-  const loginSettings = await getLoginSettings({ serviceConfig, organization: user.details?.resourceOwner });
+  const loginSettings = await getLoginSettings({ serviceConfig, organization: user.details?.resourceOwner, fresh: true });
+  const otpFirstOrg = await isOtpFirstOrg(serviceConfig, user.details?.resourceOwner);
 
   // redirect to mfa factor if user has one, or redirect to set one up
   const mfaFactorCheck = await checkMFAFactors(
@@ -196,6 +206,7 @@ export async function sendVerification(command: VerifyUserByEmailCommand) {
     authMethodResponse.authMethodTypes,
     command.organization,
     command.requestId,
+    { otpFirstOrg },
   );
 
   if (mfaFactorCheck?.redirect) {

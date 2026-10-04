@@ -1,172 +1,113 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+/**
+ * loginWithOIDCAndSession after the AZDIGI change: the session is checked with checkSessionPolicy (fresh policy) and
+ * tokens are requested through the guarded wrapper; a refusal redirects to the screen the verdict names.
+ */
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import * as issueModule from "./azdigi/issue";
+import { PolicyRejectedError } from "./azdigi/issue";
 import { loginWithOIDCAndSession } from "./oidc";
 import * as sessionModule from "./session";
 import * as zitadelModule from "./zitadel";
-import * as loginnameModule from "./server/loginname";
 
-vi.mock("./session");
-vi.mock("./zitadel");
-vi.mock("./server/loginname");
+vi.mock("./session", () => ({ checkSessionPolicy: vi.fn() }));
+vi.mock("./zitadel", () => ({ getLoginSettings: vi.fn() }));
+vi.mock("./azdigi/issue", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./azdigi/issue")>();
+  return { ...actual, guardedCreateCallback: vi.fn() };
+});
 
 describe("loginWithOIDCAndSession", () => {
-  const mockServiceUrl = "https://zitadel.example.com";
-  const mockAuthRequest = "auth-123";
-  const mockSessionId = "session-123";
+  const serviceConfig = { baseUrl: "https://zitadel.example.com" };
+  const authRequest = "auth-123";
+  const sessionId = "session-123";
 
-  let mockSessions: any[];
-  let mockCookies: any[];
+  let sessions: any[];
+  let sessionCookies: any[];
 
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.spyOn(console, "log").mockImplementation(() => {});
     vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(sessionModule.checkSessionPolicy).mockResolvedValue({ ok: true });
 
-    mockSessions = [
+    sessions = [
       {
-        id: mockSessionId,
+        id: sessionId,
         factors: {
-          user: {
-            id: "user-123",
-            loginName: "test@example.com",
-            organizationId: "org-123",
-          },
-          password: {
-            verifiedAt: { seconds: BigInt(Math.floor(Date.now() / 1000)) },
-          },
+          user: { id: "user-123", loginName: "test@example.com", organizationId: "org-123" },
+          password: { verifiedAt: { seconds: BigInt(Math.floor(Date.now() / 1000)) } },
         },
       },
     ];
-
-    mockCookies = [
-      {
-        id: mockSessionId,
-        token: "token-123",
-        loginName: "test@example.com",
-        creationTs: new Date().toISOString(),
-        expirationTs: new Date(Date.now() + 3600000).toISOString(),
-        changeTs: new Date().toISOString(),
-      },
-    ];
+    sessionCookies = [{ id: sessionId, token: "token-123", loginName: "test@example.com", creationTs: "", expirationTs: "", changeTs: "" }];
   });
 
-  it("should redirect to callback URL when session is valid", async () => {
-    vi.mocked(sessionModule.isSessionValid).mockResolvedValue(true);
-    vi.mocked(zitadelModule.createCallback).mockResolvedValue({
-      callbackUrl: "https://app.example.com/callback",
-    } as any);
+  it("redirects to the callback URL when the policy accepts the session", async () => {
+    vi.mocked(issueModule.guardedCreateCallback).mockResolvedValue({ callbackUrl: "https://app.example.com/callback" } as any);
 
-    const result = await loginWithOIDCAndSession({
-      serviceUrl: mockServiceUrl,
-      authRequest: mockAuthRequest,
-      sessionId: mockSessionId,
-      sessions: mockSessions,
-      sessionCookies: mockCookies,
-    });
+    const result = await loginWithOIDCAndSession({ serviceConfig, authRequest, sessionId, sessions, sessionCookies });
 
     expect(result).toEqual({ redirect: "https://app.example.com/callback" });
-  });
-
-  it("should redirect to re-authenticate when session is invalid", async () => {
-    vi.mocked(sessionModule.isSessionValid).mockResolvedValue(false);
-    vi.mocked(loginnameModule.sendLoginname).mockResolvedValue({
-      redirect: "/password",
-    });
-
-    const result = await loginWithOIDCAndSession({
-      serviceUrl: mockServiceUrl,
-      authRequest: mockAuthRequest,
-      sessionId: mockSessionId,
-      sessions: mockSessions,
-      sessionCookies: mockCookies,
-    });
-
-    expect(result).toEqual({ redirect: "/password" });
-    expect(loginnameModule.sendLoginname).toHaveBeenCalledWith({
-      loginName: "test@example.com",
-      organization: "org-123",
-      requestId: `oidc_${mockAuthRequest}`,
+    expect(issueModule.guardedCreateCallback).toHaveBeenCalledWith({
+      serviceConfig,
+      authRequestId: authRequest,
+      session: { sessionId, sessionToken: "token-123" },
     });
   });
 
-  it("should return error when session not found", async () => {
-    const result = await loginWithOIDCAndSession({
-      serviceUrl: mockServiceUrl,
-      authRequest: mockAuthRequest,
-      sessionId: "nonexistent",
-      sessions: mockSessions,
-      sessionCookies: mockCookies,
-    });
+  it("redirects to the screen the verdict names when the policy refuses, without asking for tokens", async () => {
+    vi.mocked(sessionModule.checkSessionPolicy).mockResolvedValue({ ok: false, reason: "second-factor-missing", next: "mfa" });
+
+    const result = await loginWithOIDCAndSession({ serviceConfig, authRequest, sessionId, sessions, sessionCookies });
+
+    expect(result).toEqual({ redirect: "/mfa?loginName=test%40example.com&organization=org-123&requestId=oidc_auth-123" });
+    expect(issueModule.guardedCreateCallback).not.toHaveBeenCalled();
+  });
+
+  it("follows the wrapper's refusal too (it re-reads the session with its token)", async () => {
+    vi.mocked(issueModule.guardedCreateCallback).mockRejectedValue(
+      new PolicyRejectedError({ ok: false, reason: "no-first-factor", next: "otpEmail" }, sessions[0]),
+    );
+
+    const result = await loginWithOIDCAndSession({ serviceConfig, authRequest, sessionId, sessions, sessionCookies });
+
+    expect(result).toEqual({ redirect: "/otp/email?loginName=test%40example.com&organization=org-123&requestId=oidc_auth-123" });
+  });
+
+  it("returns an error when the cookie is missing", async () => {
+    const result = await loginWithOIDCAndSession({ serviceConfig, authRequest, sessionId, sessions, sessionCookies: [] });
+
+    expect(result).toEqual({ error: "Session not found or invalid" });
+    expect(issueModule.guardedCreateCallback).not.toHaveBeenCalled();
+  });
+
+  it("returns an error when the session is unknown", async () => {
+    const result = await loginWithOIDCAndSession({ serviceConfig, authRequest, sessionId: "other", sessions, sessionCookies });
 
     expect(result).toEqual({ error: "Session not found or invalid" });
   });
 
-  it("should return error when cookie not found", async () => {
-    vi.mocked(sessionModule.isSessionValid).mockResolvedValue(true);
+  it("handles error code 9 with the default redirect URI", async () => {
+    vi.mocked(issueModule.guardedCreateCallback).mockRejectedValue({ code: 9 });
+    vi.mocked(zitadelModule.getLoginSettings).mockResolvedValue({ defaultRedirectUri: "https://default.example.com" } as any);
 
-    const result = await loginWithOIDCAndSession({
-      serviceUrl: mockServiceUrl,
-      authRequest: mockAuthRequest,
-      sessionId: mockSessionId,
-      sessions: mockSessions,
-      sessionCookies: [],
-    });
-
-    expect(result).toEqual({ error: "Session not found or invalid" });
-  });
-
-  it("should handle error code 9 with default redirect", async () => {
-    vi.mocked(sessionModule.isSessionValid).mockResolvedValue(true);
-    vi.mocked(zitadelModule.createCallback).mockRejectedValue({ code: 9 });
-    vi.mocked(zitadelModule.getLoginSettings).mockResolvedValue({
-      defaultRedirectUri: "https://default.example.com",
-    } as any);
-
-    const result = await loginWithOIDCAndSession({
-      serviceUrl: mockServiceUrl,
-      authRequest: mockAuthRequest,
-      sessionId: mockSessionId,
-      sessions: mockSessions,
-      sessionCookies: mockCookies,
-    });
+    const result = await loginWithOIDCAndSession({ serviceConfig, authRequest, sessionId, sessions, sessionCookies });
 
     expect(result).toEqual({ redirect: "https://default.example.com" });
   });
 
-  it("should redirect to /signedin when error code 9 and no default URI", async () => {
-    vi.mocked(sessionModule.isSessionValid).mockResolvedValue(true);
-    vi.mocked(zitadelModule.createCallback).mockRejectedValue({ code: 9 });
+  it("redirects to /signedin on error code 9 without a default URI", async () => {
+    vi.mocked(issueModule.guardedCreateCallback).mockRejectedValue({ code: 9 });
     vi.mocked(zitadelModule.getLoginSettings).mockResolvedValue({} as any);
 
-    const result = await loginWithOIDCAndSession({
-      serviceUrl: mockServiceUrl,
-      authRequest: mockAuthRequest,
-      sessionId: mockSessionId,
-      sessions: mockSessions,
-      sessionCookies: mockCookies,
-    });
+    const result = await loginWithOIDCAndSession({ serviceConfig, authRequest, sessionId, sessions, sessionCookies });
 
-    expect(result).toHaveProperty("redirect");
-    if ("redirect" in result) {
-      expect(result.redirect).toContain("/signedin");
-      expect(result.redirect).toContain("loginName=test%40example.com");
-      expect(result.redirect).toContain("organization=org-123");
-    }
+    expect(result).toEqual({ redirect: "/signedin?loginName=test%40example.com&organization=org-123" });
   });
 
-  it("should return unknown error for non-code-9 errors", async () => {
-    vi.mocked(sessionModule.isSessionValid).mockResolvedValue(true);
-    vi.mocked(zitadelModule.createCallback).mockRejectedValue({
-      code: 13,
-      message: "Internal error",
-    });
+  it("returns an unknown error for other failures", async () => {
+    vi.mocked(issueModule.guardedCreateCallback).mockRejectedValue({ code: 13, message: "boom" });
 
-    const result = await loginWithOIDCAndSession({
-      serviceUrl: mockServiceUrl,
-      authRequest: mockAuthRequest,
-      sessionId: mockSessionId,
-      sessions: mockSessions,
-      sessionCookies: mockCookies,
-    });
+    const result = await loginWithOIDCAndSession({ serviceConfig, authRequest, sessionId, sessions, sessionCookies });
 
     expect(result).toEqual({ error: "Unknown error occurred" });
   });

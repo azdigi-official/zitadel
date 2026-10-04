@@ -28,13 +28,24 @@ type Props = {
   method: string;
   code?: string;
   loginSettings?: LoginSettings;
+  /** AZDIGI: offer the password as an alternative when the code is the first factor and the user has one */
+  altPassword?: boolean;
 };
 
 type Inputs = {
   code: string;
 };
 
-export function LoginOTP({ host, loginName, sessionId, requestId, organization, method, code, loginSettings }: Props) {
+export function LoginOTP({
+  loginName,
+  sessionId,
+  requestId,
+  organization,
+  method,
+  code,
+  loginSettings,
+  altPassword = false,
+}: Props) {
   const t = useTranslations("otp");
 
   const [error, setError] = useState<string>("");
@@ -58,29 +69,13 @@ export function LoginOTP({ host, loginName, sessionId, requestId, organization, 
   }> => {
     let challenges;
 
-    const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
-
+    // AZDIGI: only name the challenge; the server builds the delivery (link template, no returnCode)
     if (method === "email") {
-      challenges = create(RequestChallengesSchema, {
-        otpEmail: {
-          deliveryType: {
-            case: "sendCode",
-            value: host
-              ? {
-                  urlTemplate:
-                    `${host.includes("localhost") ? "http://" : "https://"}${host}${basePath}/otp/${method}?code={{.Code}}&userId={{.UserID}}&sessionId={{.SessionID}}` +
-                    (requestId ? `&requestId=${requestId}` : ""),
-                }
-              : {},
-          },
-        },
-      });
+      challenges = create(RequestChallengesSchema, { otpEmail: {} });
     }
 
     if (method === "sms") {
-      challenges = create(RequestChallengesSchema, {
-        otpSms: {},
-      });
+      challenges = create(RequestChallengesSchema, { otpSms: {} });
     }
 
     let response;
@@ -97,11 +92,14 @@ export function LoginOTP({ host, loginName, sessionId, requestId, organization, 
     }
 
     if (response && "error" in response && response.error) {
+      if ("redirect" in response && response.redirect) {
+        router.push(response.redirect);
+      }
       return { error: response.error };
     }
 
     return response;
-  }, [method, host, requestId, loginName, sessionId, organization]);
+  }, [method, requestId, loginName, sessionId, organization, router]);
 
   useEffect(() => {
     if (!initialized.current && ["email", "sms"].includes(method) && !code) {
@@ -169,11 +167,23 @@ export function LoginOTP({ host, loginName, sessionId, requestId, organization, 
       });
 
     if (response && "error" in response && response.error) {
+      if ("redirect" in response && response.redirect) {
+        router.push(response.redirect);
+      }
       setError(response.error);
       return;
     }
 
     return response;
+  }
+
+  function goToPassword() {
+    const params = new URLSearchParams();
+    if (loginName) params.append("loginName", loginName);
+    if (sessionId) params.append("sessionId", sessionId);
+    if (organization) params.append("organization", organization);
+    if (requestId) params.append("requestId", requestId);
+    router.push("/password?" + params);
   }
 
   function setCodeAndContinue(values: Inputs) {
@@ -255,7 +265,13 @@ export function LoginOTP({ host, loginName, sessionId, requestId, organization, 
         )}
 
         <div className="mt-8 flex w-full flex-row items-center">
-          <BackButton data-testid="back-button" />
+          {altPassword ? (
+            <Button type="button" variant={ButtonVariants.Secondary} onClick={goToPassword} data-testid="password-button">
+              <Translated i18nKey="verify.usePassword" namespace="otp" />
+            </Button>
+          ) : (
+            <BackButton data-testid="back-button" />
+          )}
           <span className="flex-grow"></span>
           <Button
             type="submit"

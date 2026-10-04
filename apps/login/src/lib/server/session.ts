@@ -1,18 +1,26 @@
 "use server";
 
+import { buildServerChallenges } from "@/lib/azdigi/challenges";
+import { clientIpFromHeaders } from "@/lib/azdigi/client-ip";
+import { decideOtpFirstForUser } from "@/lib/azdigi/otp-first";
+import { hasVerifiedFirstFactor } from "@/lib/azdigi/policy";
+import { limiters } from "@/lib/azdigi/rate-limit";
 import { createSessionAndUpdateCookie, setSessionAndUpdateCookie } from "@/lib/server/cookie";
 import {
   deleteSession,
   getLoginSettings,
   getSecuritySettings,
+  getSession,
+  getUserByID,
   humanMFAInitSkipped,
   listAuthenticationMethodTypes,
   listUsers,
 } from "@/lib/zitadel";
 import { create, Duration } from "@zitadel/client";
-import { RequestChallenges } from "@zitadel/proto/zitadel/session/v2/challenge_pb";
+import { Challenges, RequestChallenges } from "@zitadel/proto/zitadel/session/v2/challenge_pb";
 import { Session } from "@zitadel/proto/zitadel/session/v2/session_pb";
 import { Checks, ChecksSchema } from "@zitadel/proto/zitadel/session/v2/session_service_pb";
+import { AuthenticationMethodType } from "@zitadel/proto/zitadel/user/v2/user_service_pb";
 import { getTranslations } from "next-intl/server";
 import { headers } from "next/headers";
 import { completeFlowOrGetUrl } from "../client";
@@ -106,12 +114,52 @@ export type UpdateSessionCommand = {
   organization?: string;
   checks?: Checks;
   requestId?: string;
+  /**
+   * AZDIGI: the client only names which challenge it wants (otpEmail / otpSms / webAuthN with its
+   * userVerificationRequirement). Delivery details are built on the server and OTP codes are never returned.
+   */
   challenges?: RequestChallenges;
+  /** AZDIGI: ignored — the lifetime always comes from the organisation's login settings */
   lifetime?: Duration;
 };
 
-export async function updateOrCreateSession(options: UpdateSessionCommand) {
-  let { loginName, sessionId, organization, checks, requestId, challenges, lifetime } = options;
+/** Loose shape (all optional) so upstream callers keep reading `error`, `factors`, `challenges` as before. */
+export type UpdateSessionResult = {
+  error?: string;
+  redirect?: string;
+  failedAttempts?: number;
+  locked?: boolean;
+  sessionId?: string;
+  factors?: Session["factors"];
+  /** only the WebAuthn challenge is ever returned; OTP codes never leave the server */
+  challenges?: Pick<Challenges, "webAuthN">;
+  authMethods?: AuthenticationMethodType[];
+};
+
+function otpErrorToResult(error: unknown, t: Awaited<ReturnType<typeof getTranslations>>, remaining: number) {
+  const raw: string =
+    (error as any)?.rawMessage ?? (error as any)?.message ?? (typeof error === "string" ? error : "") ?? "";
+  if (raw.includes("Errors.User.Locked")) {
+    return { error: t("userLocked"), locked: true };
+  }
+  const failedAttempts: number | undefined =
+    typeof (error as any)?.failedAttempts === "number" ? (error as any).failedAttempts : undefined;
+  if (failedAttempts !== undefined || /Errors\.User\.Code|Errors\.User\.MFA\.OTP|OTP/i.test(raw)) {
+    return { error: t("codeInvalid", { remaining }), failedAttempts };
+  }
+  return undefined;
+}
+
+function passwordParams(loginName?: string, organization?: string, requestId?: string) {
+  const params = new URLSearchParams();
+  if (loginName) params.append("loginName", loginName);
+  if (organization) params.append("organization", organization);
+  if (requestId) params.append("requestId", requestId);
+  return params;
+}
+
+export async function updateOrCreateSession(options: UpdateSessionCommand): Promise<UpdateSessionResult> {
+  const { loginName, sessionId, organization, checks, requestId } = options;
 
   const _headers = await headers();
   const { serviceConfig } = getServiceConfig(_headers);
@@ -123,11 +171,9 @@ export async function updateOrCreateSession(options: UpdateSessionCommand) {
     return { error: "Could not get host" }; // Technical error, maybe leave or translate if key exists
   }
 
-  if (challenges && challenges.webAuthN && !challenges.webAuthN.domain) {
-    const [hostname] = host.split(":");
-
-    challenges.webAuthN.domain = hostname;
-  }
+  const challenges = buildServerChallenges(options.challenges, host, requestId);
+  const wantsOtpSend = !!(challenges?.otpEmail || challenges?.otpSms);
+  const triesOtpCode = !!(checks?.otpEmail || checks?.otpSms || checks?.totp);
 
   let recentSession = sessionId
     ? await getSessionCookieById({ sessionId })
@@ -140,13 +186,13 @@ export async function updateOrCreateSession(options: UpdateSessionCommand) {
       return { error: t("couldNotFindSession") };
     }
 
-    const checks = create(ChecksSchema, {
+    // user check only; challenges are requested below once the session is known to be allowed to receive them
+    const userChecks = create(ChecksSchema, {
       user: { search: { case: "loginName", value: loginName } },
     });
 
     const result = await createSessionAndUpdateCookie({
-      checks,
-      challenges,
+      checks: userChecks,
       requestId,
     }).catch((error) => {
       console.error("Could not create session", error);
@@ -164,15 +210,70 @@ export async function updateOrCreateSession(options: UpdateSessionCommand) {
     }
   }
 
+  let userId: string | undefined;
+
+  if (wantsOtpSend || triesOtpCode) {
+    const current = await getSession({ serviceConfig, sessionId: recentSession.id, sessionToken: recentSession.token })
+      .then((resp) => resp?.session)
+      .catch(() => undefined);
+
+    if (!current?.factors?.user?.id) {
+      return { error: t("couldNotFindSession") };
+    }
+    userId = current.factors.user.id;
+    const organizationId = current.factors.user.organizationId;
+
+    if (!hasVerifiedFirstFactor(current)) {
+      // an OTP as the first factor: only for eligible users of allow-listed organisations
+      const userResponse = await getUserByID({ serviceConfig, userId }).catch(() => undefined);
+      const user = userResponse?.user;
+      const decision = await decideOtpFirstForUser({
+        serviceConfig,
+        userId,
+        organizationId,
+        humanUser: user?.type.case === "human" ? user.type.value : undefined,
+        userState: user?.state,
+      });
+      if (!decision.eligible) {
+        console.warn("[azdigi] OTP-first refused", { userId, organizationId, reason: decision.reason });
+        return {
+          error: t("otpFirstNotAllowed"),
+          redirect: "/password?" + passwordParams(current.factors.user.loginName, organizationId, requestId),
+        };
+      }
+    }
+
+    if (wantsOtpSend) {
+      const ip = clientIpFromHeaders(_headers);
+      const perLogin = limiters.otpSendPerLogin.hit(`login:${organizationId}:${current.factors.user.loginName}`);
+      const perIp = ip ? limiters.otpSendPerIp.hit(`ip:${ip}`) : { allowed: true, retryAfterMs: 0 };
+      if (!perLogin.allowed || !perIp.allowed) {
+        console.warn("[azdigi] OTP send rate limited", {
+          userId,
+          organizationId,
+          scope: perLogin.allowed ? "ip" : "login",
+        });
+        const retryAfterMs = Math.max(perLogin.retryAfterMs, perIp.retryAfterMs);
+        return { error: t("tooManyCodeRequests", { minutes: Math.max(1, Math.ceil(retryAfterMs / 60000)) }) };
+      }
+    }
+
+    if (triesOtpCode) {
+      const attempts = limiters.otpVerifyPerUser.hit(`user:${userId}`);
+      if (!attempts.allowed) {
+        console.warn("[azdigi] OTP verify rate limited", { userId, organizationId });
+        return { error: t("tooManyCodeAttempts", { minutes: Math.max(1, Math.ceil(attempts.retryAfterMs / 60000)) }) };
+      }
+    }
+  }
+
   const loginSettings = await getLoginSettings({ serviceConfig, organization });
 
-  if (!lifetime) {
-    lifetime = checks?.webAuthN
-      ? loginSettings?.multiFactorCheckLifetime // TODO different lifetime for webauthn u2f/passkey
-      : checks?.otpEmail || checks?.otpSms
-        ? loginSettings?.secondFactorCheckLifetime
-        : undefined;
-  }
+  let lifetime = checks?.webAuthN
+    ? loginSettings?.multiFactorCheckLifetime // TODO different lifetime for webauthn u2f/passkey
+    : checks?.otpEmail || checks?.otpSms || checks?.totp
+      ? loginSettings?.secondFactorCheckLifetime
+      : undefined;
 
   if (!lifetime || !lifetime.seconds) {
     console.warn("No lifetime provided for session, defaulting to 24 hours");
@@ -192,6 +293,15 @@ export async function updateOrCreateSession(options: UpdateSessionCommand) {
       lifetime,
     });
   } catch (error) {
+    if (triesOtpCode) {
+      const remaining = userId ? limiters.otpVerifyPerUser.peek(`user:${userId}`).remaining : 0;
+      const mapped = otpErrorToResult(error, t, remaining);
+      if (mapped) {
+        return mapped;
+      }
+    }
+
+    // any other failure: the session behind the cookie may be gone — re-create it for the same user (upstream behaviour)
     const loginNameForCreation = options.loginName || recentSession?.loginName;
     const orgForCreation = options.organization || recentSession?.organization;
 
@@ -229,6 +339,11 @@ export async function updateOrCreateSession(options: UpdateSessionCommand) {
     return { error: t("couldNotUpdateSession") };
   }
 
+  if (triesOtpCode && userId) {
+    // a verified code ends the attempt window
+    limiters.otpVerifyPerUser.clear(`user:${userId}`);
+  }
+
   // if password, check if user has MFA methods
   let authMethods;
   if (checks && checks.password && session.factors?.user?.id) {
@@ -238,11 +353,14 @@ export async function updateOrCreateSession(options: UpdateSessionCommand) {
     }
   }
 
+  // @ts-ignore
+  const issued: Challenges | undefined = session.challenges;
+
   return {
     sessionId: session.id,
     factors: session.factors,
-    // @ts-ignore
-    challenges: session.challenges,
+    // OTP codes (returnCode) never leave the server; only the WebAuthn challenge is needed by the browser
+    challenges: issued?.webAuthN ? { webAuthN: issued.webAuthN } : undefined,
     authMethods,
   };
 }

@@ -3,14 +3,17 @@ import { DynamicTheme } from "@/components/dynamic-theme";
 import { LoginOTP } from "@/components/login-otp";
 import { Translated } from "@/components/translated";
 import { UserAvatar } from "@/components/user-avatar";
+import { decideOtpFirstForUser } from "@/lib/azdigi/otp-first";
+import { hasVerifiedFirstFactor } from "@/lib/azdigi/policy";
 import { getSessionCookieById } from "@/lib/cookies";
 import { getPublicHost } from "@/lib/server/host";
 import { getServiceConfig } from "@/lib/service-url";
 import { loadMostRecentSession } from "@/lib/session";
-import { getBrandingSettings, getLoginSettings, getSession } from "@/lib/zitadel";
+import { getBrandingSettings, getLoginSettings, getSession, getUserByID } from "@/lib/zitadel";
 import { Metadata } from "next";
 import { getTranslations } from "next-intl/server";
 import { headers } from "next/headers";
+import { redirect } from "next/navigation";
 
 export async function generateMetadata(): Promise<Metadata> {
   const t = await getTranslations("otp");
@@ -34,6 +37,7 @@ export default async function Page(props: {
     sessionId,
     organization,
     code,
+    altPassword,
   } = searchParams;
 
   const { method } = params;
@@ -56,6 +60,31 @@ export default async function Page(props: {
     });
   }
 
+  // AZDIGI: a code as the first factor only for eligible users; everyone else is sent to the password page
+  // (the server action enforces the same rule, this just avoids a dead screen)
+  if (session?.factors?.user?.id && ["email", "sms"].includes(method ?? "") && !hasVerifiedFirstFactor(session)) {
+    const user = await getUserByID({ serviceConfig, userId: session.factors.user.id })
+      .then((resp) => resp.user)
+      .catch(() => undefined);
+    const decision = await decideOtpFirstForUser({
+      serviceConfig,
+      userId: session.factors.user.id,
+      organizationId: session.factors.user.organizationId,
+      humanUser: user?.type.case === "human" ? user.type.value : undefined,
+      userState: user?.state,
+    });
+    if (!decision.eligible) {
+      const params = new URLSearchParams({ loginName: loginName ?? session.factors.user.loginName });
+      if (organization ?? session.factors.user.organizationId) {
+        params.append("organization", organization ?? session.factors.user.organizationId);
+      }
+      if (requestId) {
+        params.append("requestId", requestId);
+      }
+      redirect("/password?" + params);
+    }
+  }
+
   // email links do not come with organization, thus we need to use the session's organization
   const branding = await getBrandingSettings({
     serviceConfig,
@@ -71,7 +100,10 @@ export default async function Page(props: {
     <DynamicTheme branding={branding}>
       <div className="flex flex-col space-y-4">
         <h1>
-          <Translated i18nKey="verify.title" namespace="otp" />
+          <Translated
+            i18nKey={session && !hasVerifiedFirstFactor(session) ? "verify.firstFactorTitle" : "verify.title"}
+            namespace="otp"
+          />
         </h1>
         {method === "time-based" && (
           <p className="ztdl-p">
@@ -85,7 +117,10 @@ export default async function Page(props: {
         )}
         {method === "email" && (
           <p className="ztdl-p">
-            <Translated i18nKey="verify.emailDescription" namespace="otp" />
+            <Translated
+              i18nKey={session && !hasVerifiedFirstFactor(session) ? "verify.emailFirstDescription" : "verify.emailDescription"}
+              namespace="otp"
+            />
           </p>
         )}
 
@@ -118,6 +153,7 @@ export default async function Page(props: {
             loginSettings={loginSettings}
             host={host}
             code={code}
+            altPassword={altPassword === "true"}
           ></LoginOTP>
         )}
       </div>

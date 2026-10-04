@@ -2,9 +2,8 @@ import { idpTypeToSlug } from "@/lib/idp";
 import { sendLoginname, SendLoginnameCommand } from "@/lib/server/loginname";
 import { constructUrl } from "@/lib/service-url";
 import { findValidSession } from "@/lib/session";
+import { guardedCreateCallback, guardedCreateResponse } from "@/lib/azdigi/issue";
 import {
-  createCallback,
-  createResponse,
   getActiveIdentityProviders,
   getAuthRequest,
   getOrgsByDomain,
@@ -13,10 +12,7 @@ import {
   ServiceConfig,
   startIdentityProviderFlow,
 } from "@/lib/zitadel";
-import { create } from "@zitadel/client";
 import { Prompt } from "@zitadel/proto/zitadel/oidc/v2/authorization_pb";
-import { CreateCallbackRequestSchema, SessionSchema } from "@zitadel/proto/zitadel/oidc/v2/oidc_service_pb";
-import { CreateResponseRequestSchema } from "@zitadel/proto/zitadel/saml/v2/saml_service_pb";
 import { Session } from "@zitadel/proto/zitadel/session/v2/session_pb";
 import { IdentityProviderType } from "@zitadel/proto/zitadel/settings/v2/login_settings_pb";
 import { NextRequest, NextResponse } from "next/server";
@@ -265,16 +261,7 @@ export async function handleOIDCFlowInitiation(params: FlowInitiationParams): Pr
         sessionToken: cookie.token,
       };
 
-      const { callbackUrl } = await createCallback({
-        serviceConfig,
-        req: create(CreateCallbackRequestSchema, {
-          authRequestId: requestId.replace("oidc_", ""),
-          callbackKind: {
-            case: "session",
-            value: create(SessionSchema, session),
-          },
-        }),
-      });
+      const { callbackUrl } = await guardedCreateCallback({ serviceConfig, authRequestId: requestId.replace("oidc_", ""), session });
 
       const callbackResponse = NextResponse.redirect(callbackUrl);
 
@@ -315,16 +302,7 @@ export async function handleOIDCFlowInitiation(params: FlowInitiationParams): Pr
       };
 
       try {
-        const { callbackUrl } = await createCallback({
-          serviceConfig,
-          req: create(CreateCallbackRequestSchema, {
-            authRequestId: requestId.replace("oidc_", ""),
-            callbackKind: {
-              case: "session",
-              value: create(SessionSchema, session),
-            },
-          }),
-        });
+        const { callbackUrl } = await guardedCreateCallback({ serviceConfig, authRequestId: requestId.replace("oidc_", ""), session });
         if (callbackUrl) {
           return NextResponse.redirect(callbackUrl);
         } else {
@@ -413,16 +391,7 @@ export async function handleSAMLFlowInitiation(params: FlowInitiationParams): Pr
   };
 
   try {
-    const { url, binding } = await createResponse({
-      serviceConfig,
-      req: create(CreateResponseRequestSchema, {
-        samlRequestId: requestId.replace("saml_", ""),
-        responseKind: {
-          case: "session",
-          value: session,
-        },
-      }),
-    });
+    const { url, binding } = await guardedCreateResponse({ serviceConfig, samlRequestId: requestId.replace("saml_", ""), session });
 
     if (url && binding.case === "redirect") {
       return NextResponse.redirect(url);

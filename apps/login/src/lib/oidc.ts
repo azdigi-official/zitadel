@@ -1,10 +1,8 @@
 import { Cookie } from "@/lib/cookies";
-import { sendLoginname, SendLoginnameCommand } from "@/lib/server/loginname";
-import { createCallback, getLoginSettings, ServiceConfig } from "@/lib/zitadel";
-import { create } from "@zitadel/client";
-import { CreateCallbackRequestSchema, SessionSchema } from "@zitadel/proto/zitadel/oidc/v2/oidc_service_pb";
+import { getLoginSettings, ServiceConfig } from "@/lib/zitadel";
 import { Session } from "@zitadel/proto/zitadel/session/v2/session_pb";
-import { isSessionValid } from "./session";
+import { guardedCreateCallback, isPolicyRejected, redirectForVerdict } from "./azdigi/issue";
+import { checkSessionPolicy } from "./session";
 
 type LoginWithOIDCAndSession = {
   serviceConfig: ServiceConfig;
@@ -23,24 +21,12 @@ export async function loginWithOIDCAndSession({
   const selectedSession = sessions.find((s) => s.id === sessionId);
 
   if (selectedSession && selectedSession.id) {
-    const isValid = await isSessionValid({ serviceConfig, session: selectedSession });
+    // AZDIGI: refuse here with a precise next step instead of a blind sendLoginname; the token wrapper below
+    // re-checks with the session token anyway
+    const verdict = await checkSessionPolicy({ serviceConfig, session: selectedSession });
 
-    console.log("Session is valid:", isValid);
-
-    if (!isValid && selectedSession.factors?.user) {
-      // if the session is not valid anymore, we need to redirect the user to re-authenticate /
-      // TODO: handle IDP intent direcly if available
-      const command: SendLoginnameCommand = {
-        loginName: selectedSession.factors.user?.loginName,
-        organization: selectedSession.factors?.user?.organizationId,
-        requestId: `oidc_${authRequest}`,
-      };
-
-      const res = await sendLoginname(command);
-
-      if (res && "redirect" in res && res?.redirect) {
-        return { redirect: res.redirect };
-      }
+    if (!verdict.ok) {
+      return { redirect: redirectForVerdict(verdict, selectedSession, `oidc_${authRequest}`) };
     }
 
     const cookie = sessionCookies.find((cookie) => cookie.id === selectedSession?.id);
@@ -52,22 +38,16 @@ export async function loginWithOIDCAndSession({
       };
 
       try {
-        const { callbackUrl } = await createCallback({
-          serviceConfig,
-          req: create(CreateCallbackRequestSchema, {
-            authRequestId: authRequest,
-            callbackKind: {
-              case: "session",
-              value: create(SessionSchema, session),
-            },
-          }),
-        });
+        const { callbackUrl } = await guardedCreateCallback({ serviceConfig, authRequestId: authRequest, session });
         if (callbackUrl) {
           return { redirect: callbackUrl };
         } else {
           return { error: "An error occurred!" };
         }
       } catch (error: unknown) {
+        if (isPolicyRejected(error)) {
+          return { redirect: redirectForVerdict(error.verdict, error.session ?? selectedSession, `oidc_${authRequest}`) };
+        }
         // handle already handled gracefully as these could come up if old emails with requestId are used (reset password, register emails etc.)
         console.error(error);
         if (error && typeof error === "object" && "code" in error && error?.code === 9) {

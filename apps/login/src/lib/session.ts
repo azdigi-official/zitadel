@@ -3,10 +3,10 @@ import { AuthRequest } from "@zitadel/proto/zitadel/oidc/v2/authorization_pb";
 import { SAMLRequest } from "@zitadel/proto/zitadel/saml/v2/authorization_pb";
 import { Session } from "@zitadel/proto/zitadel/session/v2/session_pb";
 import { GetSessionResponse } from "@zitadel/proto/zitadel/session/v2/session_service_pb";
-import { AuthenticationMethodType } from "@zitadel/proto/zitadel/user/v2/user_service_pb";
+import { isOtpFirstOrg } from "./azdigi/org-lookup";
+import { assertSessionSatisfiesPolicy, PolicyVerdict } from "./azdigi/policy";
 import { getMostRecentCookieWithLoginname } from "./cookies";
-import { shouldEnforceMFA } from "./verify-helper";
-import { getLoginSettings, getSession, getUserByID, listAuthenticationMethodTypes, ServiceConfig } from "./zitadel";
+import { getLoginSettings, getSession, getUserByID, ServiceConfig } from "./zitadel";
 
 type LoadMostRecentSessionParams = {
   serviceConfig: ServiceConfig;
@@ -35,9 +35,25 @@ export async function loadMostRecentSession({
 }
 
 /**
- * mfa is required, session is not valid anymore (e.g. session expired, user logged out, etc.)
- * to check for mfa for automatically selected session -> const response = await listAuthenticationMethodTypes(userId);
+ * AZDIGI: a session is valid when the organisation's fresh login policy accepts its verified factors
+ * (lib/azdigi/policy.ts) — the same rule the token wrapper (lib/azdigi/issue.ts) enforces, so there is no gap
+ * between "shown as signed in" and "receives tokens".
  **/
+export async function checkSessionPolicy({
+  serviceConfig,
+  session,
+}: {
+  serviceConfig: ServiceConfig;
+  session: Session;
+}): Promise<PolicyVerdict> {
+  const organizationId = session.factors?.user?.organizationId;
+  const [loginSettings, otpFirstOrg] = await Promise.all([
+    getLoginSettings({ serviceConfig, organization: organizationId, fresh: true }),
+    isOtpFirstOrg(serviceConfig, organizationId),
+  ]);
+  return assertSessionSatisfiesPolicy({ session, loginSettings, otpFirstOrg });
+}
+
 export async function isSessionValid({
   serviceConfig,
   session,
@@ -50,75 +66,14 @@ export async function isSessionValid({
     return false;
   }
 
-  let mfaValid = true;
+  const verdict = await checkSessionPolicy({ serviceConfig, session });
 
-  // Check if user authenticated via different methods
-  const validIDP = session?.factors?.intent?.verifiedAt;
-  const validPassword = session?.factors?.password?.verifiedAt;
-  const validPasskey = session?.factors?.webAuthN?.verifiedAt;
-
-  // Get login settings to determine if MFA is actually required by policy
-  const loginSettings = await getLoginSettings({ serviceConfig, organization: session.factors?.user?.organizationId });
-
-  // Use the existing shouldEnforceMFA function to determine if MFA is required
-  const isMfaRequired = shouldEnforceMFA(session, loginSettings);
-
-  // Only enforce MFA validation if MFA is required by policy
-  if (isMfaRequired) {
-    const authMethodTypes = await listAuthenticationMethodTypes({ serviceConfig, userId: session.factors.user.id });
-
-    const authMethods = authMethodTypes.authMethodTypes;
-    // Filter to only MFA methods (exclude PASSWORD and PASSKEY)
-    const mfaMethods = authMethods?.filter(
-      (method) =>
-        method === AuthenticationMethodType.TOTP ||
-        method === AuthenticationMethodType.OTP_EMAIL ||
-        method === AuthenticationMethodType.OTP_SMS ||
-        method === AuthenticationMethodType.U2F,
-    );
-
-    if (mfaMethods && mfaMethods.length > 0) {
-      // Check if any of the configured MFA methods have been verified
-      const totpValid = mfaMethods.includes(AuthenticationMethodType.TOTP) && !!session.factors.totp?.verifiedAt;
-      const otpEmailValid =
-        mfaMethods.includes(AuthenticationMethodType.OTP_EMAIL) && !!session.factors.otpEmail?.verifiedAt;
-      const otpSmsValid = mfaMethods.includes(AuthenticationMethodType.OTP_SMS) && !!session.factors.otpSms?.verifiedAt;
-      const u2fValid = mfaMethods.includes(AuthenticationMethodType.U2F) && !!session.factors.webAuthN?.verifiedAt;
-
-      mfaValid = totpValid || otpEmailValid || otpSmsValid || u2fValid;
-    } else {
-      // No specific MFA methods configured, but MFA is forced - check for any verified MFA factors
-      // (excluding IDP which should be handled separately)
-      const otpEmail = session.factors.otpEmail?.verifiedAt;
-      const otpSms = session.factors.otpSms?.verifiedAt;
-      const totp = session.factors.totp?.verifiedAt;
-      const webAuthN = session.factors.webAuthN?.verifiedAt;
-      // Note: Removed IDP (session.factors.intent?.verifiedAt) as requested
-
-      mfaValid = !!(otpEmail || otpSms || totp || webAuthN);
-    }
-  }
-
-  // If MFA is not required by policy, mfaValid remains true
-
-  const stillValid = session.expirationDate ? timestampDate(session.expirationDate).getTime() > new Date().getTime() : true;
-
-  if (!stillValid) {
-    console.warn(
-      "[Session] Session is expired",
-      session.expirationDate ? timestampDate(session.expirationDate).toDateString() : "no expiration date",
-    );
-    return false;
-  }
-
-  const validChecks = !!(validPassword || validPasskey || validIDP);
-
-  if (!validChecks) {
-    return false;
-  }
-
-  if (!mfaValid) {
-    console.warn("[Session] MFA is required but not valid");
+  if (!verdict.ok) {
+    console.warn("[azdigi] session does not satisfy the login policy", {
+      userId: session.factors.user.id,
+      organizationId: session.factors.user.organizationId,
+      reason: verdict.reason,
+    });
     return false;
   }
 

@@ -2,6 +2,7 @@
 
 import { createSessionAndUpdateCookie, setSessionAndUpdateCookie } from "@/lib/server/cookie";
 import {
+  addOTPEmail,
   getLockoutSettings,
   getLoginSettings,
   getPasswordExpirySettings,
@@ -17,9 +18,10 @@ import { create, Duration, timestampDate } from "@zitadel/client";
 import { Checks, ChecksSchema } from "@zitadel/proto/zitadel/session/v2/session_service_pb";
 import { LoginSettings } from "@zitadel/proto/zitadel/settings/v2/login_settings_pb";
 import { User, UserState } from "@zitadel/proto/zitadel/user/v2/user_pb";
-import { SetPasswordRequestSchema } from "@zitadel/proto/zitadel/user/v2/user_service_pb";
+import { AuthenticationMethodType, SetPasswordRequestSchema } from "@zitadel/proto/zitadel/user/v2/user_service_pb";
 import { getTranslations } from "next-intl/server";
 import { headers } from "next/headers";
+import { isOtpFirstOrg } from "../azdigi/org-lookup";
 import { completeFlowOrGetUrl } from "../client";
 import { getSessionCookieById, getSessionCookieByLoginName } from "../cookies";
 import { getServiceConfig } from "../service-url";
@@ -305,12 +307,14 @@ export async function sendPassword(
     return { error: t("errors.couldNotCreateSessionForUser") };
   }
 
-  if (!loginSettingsByUser) {
-    loginSettingsByUser = await getLoginSettings({
-      serviceConfig,
-      organization: command.organization ?? session.factors?.user?.organizationId ?? command.defaultOrganization,
-    });
-  }
+  // fresh: these settings decide whether a second factor is demanded (AZDIGI)
+  loginSettingsByUser = await getLoginSettings({
+    serviceConfig,
+    organization: command.organization ?? session.factors?.user?.organizationId ?? command.defaultOrganization,
+    fresh: true,
+  });
+
+  const otpFirstOrg = await isOtpFirstOrg(serviceConfig, session.factors?.user?.organizationId);
 
   const humanUser = user.type.case === "human" ? user.type.value : undefined;
 
@@ -364,10 +368,19 @@ export async function sendPassword(
     authMethods,
     command.organization,
     command.requestId,
+    { otpFirstOrg },
   );
 
   if (mfaFactorCheck?.redirect) {
     return mfaFactorCheck;
+  }
+
+  // AZDIGI: a customer who signed in with a password and has a verified email gets the OTP_EMAIL method so the next
+  // sign-in can be the email code alone
+  if (otpFirstOrg && humanUser?.email?.isVerified && !authMethods.includes(AuthenticationMethodType.OTP_EMAIL)) {
+    await addOTPEmail({ serviceConfig, userId: session.factors.user.id }).catch((error) => {
+      console.warn("[azdigi] could not add the OTP_EMAIL method", { userId: session.factors?.user?.id, error: String(error) });
+    });
   }
 
   let result: Awaited<ReturnType<typeof completeFlowOrGetUrl>>;

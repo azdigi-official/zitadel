@@ -38,6 +38,10 @@ vi.mock("./cookie", () => ({
   createSessionAndUpdateCookie: vi.fn(),
 }));
 
+vi.mock("../azdigi/org-lookup", () => ({
+  isOtpFirstOrg: vi.fn(async () => false),
+}));
+
 vi.mock("./host", () => ({
   getInstanceHost: vi.fn(),
   getPublicHost: vi.fn(),

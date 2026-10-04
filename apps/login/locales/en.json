@@ -50,7 +50,8 @@
       "localAuthenticationNotAllowed": "Local authentication is not allowed! Contact your administrator for more information.",
       "passkeysNotAllowed": "Passkeys not allowed! Contact your administrator for more information.",
       "couldNotFindIdentityProvider": "Could not find identity provider.",
-      "userNotActive": "User is not active. Contact your administrator for more information."
+      "userNotActive": "User is not active. Contact your administrator for more information.",
+      "noUsableAuthMethod": "This account has no sign-in method that can be used here. Contact support."
     }
   },
   "zitadel": {
@@ -242,7 +243,10 @@
       },
       "required": {
         "code": "This field is required"
-      }
+      },
+      "firstFactorTitle": "Sign in with a code",
+      "emailFirstDescription": "We sent a one-time code to your email address. Enter it to sign in.",
+      "usePassword": "Use password instead"
     },
     "set": {
       "title": "Set up 2-Factor",
@@ -409,7 +413,14 @@
       "couldNotResendInvite": "Could not resend invite",
       "inviteSendFailed": "Failed to send invitation email",
       "emailSendFailed": "Failed to send verification email",
-      "contextMissing": "An error occurred. Please try again."
+      "contextMissing": "An error occurred. Please try again.",
+      "couldNotFindSession": "Could not find a session. Enter your login name first.",
+      "couldNotUpdateSession": "Could not update the session.",
+      "otpFirstNotAllowed": "Signing in with a code is not available for this account. Continue with your password.",
+      "tooManyCodeRequests": "Too many codes were requested. Try again in {minutes} minutes.",
+      "tooManyCodeAttempts": "Too many wrong codes. Request a new code in {minutes} minutes.",
+      "codeInvalid": "The code is not valid. {remaining} attempts left before a new code is required.",
+      "userLocked": "This account is locked. Contact support to unlock it."
     }
   },
   "authenticator": {

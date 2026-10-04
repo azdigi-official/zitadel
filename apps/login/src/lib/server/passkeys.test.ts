@@ -442,7 +442,7 @@ describe("sendPasskey", () => {
       mockCompleteFlowOrGetUrl.mockResolvedValue({ redirect: "/dashboard" });
     });
 
-    test("should use custom lifetime when provided", async () => {
+    test("AZDIGI: a caller-supplied lifetime is ignored, the organisation's multiFactorCheckLifetime applies", async () => {
       await sendPasskey({
         sessionId: "session-123",
         lifetime: { seconds: BigInt(600), nanos: 0 } as any,
@@ -452,7 +452,7 @@ describe("sendPasskey", () => {
       expect(mockSetSessionAndUpdateCookie).toHaveBeenCalledWith(
         expect.objectContaining({
           lifetime: expect.objectContaining({
-            seconds: BigInt(600),
+            seconds: BigInt(300),
           }),
         }),
       );

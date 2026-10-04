@@ -10,6 +10,8 @@ import { idpTypeToIdentityProviderType, idpTypeToSlug } from "../idp";
 import { PasskeysType } from "@zitadel/proto/zitadel/settings/v2/login_settings_pb";
 import { IDPLink } from "@zitadel/proto/zitadel/user/v2/idp_pb";
 import { UserState } from "@zitadel/proto/zitadel/user/v2/user_pb";
+import { isOtpFirstOrg } from "../azdigi/org-lookup";
+import { decideOtpFirst, otpFirstParams } from "../azdigi/otp-first";
 import { getServiceConfig } from "../service-url";
 import {
   getActiveIdentityProviders,
@@ -237,7 +239,12 @@ export async function sendLoginname(command: SendLoginnameCommand) {
     const user = users[0];
     const userId = users[0].userId;
 
-    const userLoginSettings = await getLoginSettings({ serviceConfig, organization: user.details?.resourceOwner });
+    // fresh: this decides the first factor (AZDIGI)
+    const userLoginSettings = await getLoginSettings({
+      serviceConfig,
+      organization: user.details?.resourceOwner,
+      fresh: true,
+    });
 
     // compare with the concatenated suffix when set
     const concatLoginname = command.suffix ? `${command.loginName}@${command.suffix}` : command.loginName;
@@ -340,6 +347,34 @@ export async function sendLoginname(command: SendLoginnameCommand) {
       return { redirect: `/verify?` + params };
     }
 
+    // AZDIGI: email code as the first factor for eligible users (allow-listed organisation whose fresh policy does
+    // not force MFA, OTP_EMAIL method, verified email, active user); everyone else takes the stock path
+    const otpFirst = decideOtpFirst({
+      otpFirstOrg: await isOtpFirstOrg(serviceConfig, user.details?.resourceOwner ?? organization),
+      loginSettings: userLoginSettings,
+      authMethods: methods.authMethodTypes,
+      emailVerified: !!humanUser?.email?.isVerified,
+      userState: user.state,
+    });
+
+    if (otpFirst.eligible) {
+      return {
+        redirect:
+          "/otp/email?" +
+          otpFirstParams({
+            loginName: command.ignoreUnknownUsernames
+              ? command.loginName
+              : (session?.factors?.user?.loginName ?? user.preferredLoginName),
+            organization,
+            requestId: command.requestId,
+            altPassword:
+              otpFirst.altPassword &&
+              !!userLoginSettings?.allowLocalAuthentication &&
+              !!userLoginSettings?.allowUsernamePassword,
+          }),
+      };
+    }
+
     if (methods.authMethodTypes.length == 1) {
       const method = methods.authMethodTypes[0];
       switch (method) {
@@ -414,6 +449,13 @@ export async function sendLoginname(command: SendLoginnameCommand) {
           }
 
           return resp;
+
+        default:
+          // AZDIGI: a lone second factor (TOTP, SMS/email code, U2F) cannot start a login outside OTP-first
+          if (command.ignoreUnknownUsernames) {
+            return preventUserEnumeration(command.organization);
+          }
+          return { error: t("errors.noUsableAuthMethod") };
       }
     } else {
       // prefer passkey in favor of other methods
@@ -469,6 +511,12 @@ export async function sendLoginname(command: SendLoginnameCommand) {
         return {
           redirect: "/password?" + paramsPasswordDefault,
         };
+      } else {
+        // AZDIGI: only second factors on the user — nothing can start a login outside OTP-first
+        if (command.ignoreUnknownUsernames) {
+          return preventUserEnumeration(command.organization);
+        }
+        return { error: t("errors.noUsableAuthMethod") };
       }
     }
   }
