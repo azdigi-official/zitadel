@@ -17,6 +17,7 @@ export async function FooterLinks() {
     { href: legal?.tosLink, label: t("termsOfService") },
     { href: legal?.privacyPolicyLink, label: t("privacyPolicy") },
     { href: legal?.helpLink, label: t("help") },
+    { href: legal?.supportEmail ? `mailto:${legal.supportEmail}` : undefined, label: legal?.supportEmail ?? "" },
   ].filter((link): link is { href: string; label: string } => !!link.href);
 
   if (links.length === 0) {
@@ -29,7 +30,7 @@ export async function FooterLinks() {
       className="mx-auto flex max-w-[440px] flex-wrap justify-center gap-x-4 gap-y-1 px-4 pb-4 text-xs text-text-light-secondary-500 dark:text-text-dark-secondary-500 md:max-w-full"
     >
       {links.map((link) => (
-        <a key={link.href} href={link.href} target="_blank" rel="noreferrer" className="hover:underline">
+        <a key={link.href} href={link.href} target={link.href.startsWith("mailto:") ? undefined : "_blank"} rel="noreferrer" className="hover:underline">
           {link.label}
         </a>
       ))}
