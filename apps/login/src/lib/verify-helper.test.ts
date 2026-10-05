@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
-import { shouldEnforceMFA } from "./verify-helper";
+import { checkMFAFactors, shouldEnforceMFA } from "./verify-helper";
+import { AuthenticationMethodType } from "@zitadel/proto/zitadel/user/v2/user_service_pb";
 import { cookies } from "next/headers";
 import { getFingerprintIdCookie } from "./fingerprint";
 import crypto from "crypto";
@@ -864,5 +865,26 @@ describe("checkMFAFactors", () => {
     const result = await checkMFAFactors("https://example.com", mockSession, mockLoginSettings, authMethods);
 
     expect(result).toBeUndefined();
+  });
+});
+
+describe("checkMFAFactors in an OTP-first organisation (AZDIGI)", () => {
+  const session = {
+    factors: { user: { loginName: "a@b.c", organizationId: "o1" }, password: { verifiedAt: {} } },
+  } as any;
+
+  it("does not demand the code channels (email, Zalo/SMS) after a password", async () => {
+    const res = await checkMFAFactors({} as any, session, undefined, [AuthenticationMethodType.OTP_EMAIL, AuthenticationMethodType.OTP_SMS], undefined, undefined, { otpFirstOrg: true });
+    expect(res).toBeUndefined();
+  });
+
+  it("still demands a TOTP the customer set up", async () => {
+    const res = await checkMFAFactors({} as any, session, undefined, [AuthenticationMethodType.OTP_SMS, AuthenticationMethodType.TOTP], undefined, undefined, { otpFirstOrg: true });
+    expect(res).toEqual({ redirect: expect.stringContaining("/otp/time-based?") });
+  });
+
+  it("outside OTP-first organisations an OTP_SMS factor is still a second factor", async () => {
+    const res = await checkMFAFactors({} as any, session, undefined, [AuthenticationMethodType.OTP_SMS], undefined, undefined, {});
+    expect(res).toEqual({ redirect: expect.stringContaining("/otp/sms?") });
   });
 });
