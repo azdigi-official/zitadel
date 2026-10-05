@@ -1,6 +1,7 @@
 import { timestampDate } from "@zitadel/client";
 import { Session } from "@zitadel/proto/zitadel/session/v2/session_pb";
 import { LoginSettings, MultiFactorType, SecondFactorType } from "@zitadel/proto/zitadel/settings/v2/login_settings_pb";
+import { AuthenticationMethodType } from "@zitadel/proto/zitadel/user/v2/user_service_pb";
 
 /**
  * The single rule set that decides whether a Zitadel session may receive tokens. Zitadel itself issues tokens for any
@@ -18,7 +19,7 @@ export type RejectReason =
   | "second-factor-missing";
 
 /** Where to send the user when a verdict rejects the session. */
-export type NextStep = "loginname" | "password" | "otpEmail" | "mfa";
+export type NextStep = "loginname" | "password" | "otpEmail" | "mfa" | "passkey";
 
 export type PolicyVerdict = { ok: true } | { ok: false; reason: RejectReason; next: NextStep };
 
@@ -27,6 +28,12 @@ export type PolicyInput = {
   loginSettings: LoginSettings | undefined;
   /** the user's organisation is allow-listed for OTP-first (see org-lookup.ts) */
   otpFirstOrg: boolean;
+  /**
+   * Authentication methods the user has registered (ListAuthenticationMethodTypes). A user who set up TOTP, a security
+   * key or a passkey has asked for more than a mailbox: a code sent to the mailbox (or a password) alone must not be
+   * enough for them. `undefined` = could not be read → fail closed.
+   */
+  registeredMethods: AuthenticationMethodType[] | undefined;
   now?: Date;
 };
 
@@ -87,7 +94,19 @@ function secondFactorSatisfied(factors: Set<FactorKind>, settings: LoginSettings
   );
 }
 
-export function assertSessionSatisfiesPolicy({ session, loginSettings, otpFirstOrg, now }: PolicyInput): PolicyVerdict {
+/** The user's own strong factors that a weaker sign-in must not bypass. */
+function strongRegistered(methods: AuthenticationMethodType[]): { mfa: boolean; passkey: boolean } {
+  return {
+    mfa: methods.includes(AuthenticationMethodType.TOTP) || methods.includes(AuthenticationMethodType.U2F),
+    passkey: methods.includes(AuthenticationMethodType.PASSKEY),
+  };
+}
+
+function hasStrongVerified(factors: Set<FactorKind>): boolean {
+  return factors.has("totp") || factors.has("u2f") || factors.has("passkey");
+}
+
+export function assertSessionSatisfiesPolicy({ session, loginSettings, otpFirstOrg, registeredMethods, now }: PolicyInput): PolicyVerdict {
   if (!session?.factors?.user?.id || !session.factors.user.verifiedAt) {
     return { ok: false, reason: "no-user", next: "loginname" };
   }
@@ -113,6 +132,13 @@ export function assertSessionSatisfiesPolicy({ session, loginSettings, otpFirstO
   }
 
   if (firstFactor) {
+    // a password (not a passkey or an IDP) does not override the TOTP / security key the user set up
+    if (factors.has("password") && !factors.has("passkey") && !factors.has("idp")) {
+      if (!registeredMethods) return { ok: false, reason: "no-settings", next: "loginname" };
+      if (strongRegistered(registeredMethods).mfa && !hasStrongVerified(factors)) {
+        return { ok: false, reason: "second-factor-missing", next: "mfa" };
+      }
+    }
     return { ok: true };
   }
 
@@ -123,6 +149,12 @@ export function assertSessionSatisfiesPolicy({ session, loginSettings, otpFirstO
     const otpEmailOk = second.includes(SecondFactorType.OTP_EMAIL) && factors.has("otpEmail");
     const otpSmsOk = second.includes(SecondFactorType.OTP_SMS) && factors.has("otpSms");
     if (otpEmailOk || otpSmsOk) {
+      // whoever reads the mailbox / receives the SMS must not get past a TOTP, security key or passkey the user set up
+      if (!registeredMethods) return { ok: false, reason: "no-settings", next: "loginname" };
+      const strong = strongRegistered(registeredMethods);
+      if ((strong.mfa || strong.passkey) && !hasStrongVerified(factors)) {
+        return { ok: false, reason: "second-factor-missing", next: strong.mfa ? "mfa" : "passkey" };
+      }
       return { ok: true };
     }
     return { ok: false, reason: "no-first-factor", next: "otpEmail" };

@@ -13,6 +13,8 @@ vi.mock("./zitadel", () => ({
   getLoginSettings: vi.fn(),
   getUserByID: vi.fn(),
   getSession: vi.fn(),
+  // users here have no TOTP / security key / passkey unless a test says otherwise
+  listAuthenticationMethodTypes: vi.fn(async () => ({ authMethodTypes: [] })),
 }));
 vi.mock("./azdigi/org-lookup", () => ({ isOtpFirstOrg: vi.fn() }));
 vi.mock("./cookies", () => ({ getMostRecentCookieWithLoginname: vi.fn() }));

@@ -3,6 +3,7 @@ import { AuthRequest } from "@zitadel/proto/zitadel/oidc/v2/authorization_pb";
 import { SAMLRequest } from "@zitadel/proto/zitadel/saml/v2/authorization_pb";
 import { Session } from "@zitadel/proto/zitadel/session/v2/session_pb";
 import { GetSessionResponse } from "@zitadel/proto/zitadel/session/v2/session_service_pb";
+import { registeredMethodsOf } from "./azdigi/issue";
 import { isOtpFirstOrg } from "./azdigi/org-lookup";
 import { assertSessionSatisfiesPolicy, PolicyVerdict } from "./azdigi/policy";
 import { getMostRecentCookieWithLoginname } from "./cookies";
@@ -47,11 +48,13 @@ export async function checkSessionPolicy({
   session: Session;
 }): Promise<PolicyVerdict> {
   const organizationId = session.factors?.user?.organizationId;
-  const [loginSettings, otpFirstOrg] = await Promise.all([
+  const userId = session.factors?.user?.id;
+  const [loginSettings, otpFirstOrg, registeredMethods] = await Promise.all([
     getLoginSettings({ serviceConfig, organization: organizationId, fresh: true }),
     isOtpFirstOrg(serviceConfig, organizationId),
+    userId ? registeredMethodsOf(serviceConfig, userId) : Promise.resolve(undefined),
   ]);
-  return assertSessionSatisfiesPolicy({ session, loginSettings, otpFirstOrg });
+  return assertSessionSatisfiesPolicy({ session, loginSettings, otpFirstOrg, registeredMethods });
 }
 
 export async function isSessionValid({

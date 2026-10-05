@@ -1,3 +1,4 @@
+import { AuthenticationMethodType } from "@zitadel/proto/zitadel/user/v2/user_service_pb";
 import { describe, expect, test, vi, beforeEach } from "vitest";
 import * as zitadel from "../zitadel";
 import { guardedCreateCallback, guardedCreateResponse, guardedDeviceAuthorization, isPolicyRejected, PolicyRejectedError, redirectForVerdict } from "./issue";
@@ -6,6 +7,7 @@ import * as orgLookup from "./org-lookup";
 vi.mock("../zitadel", () => ({
   getSession: vi.fn(),
   getLoginSettings: vi.fn(),
+  listAuthenticationMethodTypes: vi.fn(),
   createCallback: vi.fn(),
   createResponse: vi.fn(),
   authorizeOrDenyDeviceAuthorization: vi.fn(),
@@ -27,6 +29,7 @@ describe("guarded token issuance", () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     vi.mocked(zitadel.getLoginSettings).mockResolvedValue({ forceMfa: false, secondFactors: [3], multiFactors: [] } as any);
     vi.mocked(orgLookup.isOtpFirstOrg).mockResolvedValue(true);
+    vi.mocked(zitadel.listAuthenticationMethodTypes).mockResolvedValue({ authMethodTypes: [] } as any);
   });
 
   test("user-only session gets no OIDC callback, no SAML response, no device grant", async () => {
@@ -71,5 +74,17 @@ describe("guarded token issuance", () => {
     expect(redirectForVerdict({ ok: false, reason: "no-user", next: "loginname" }, undefined)).toBe("/loginname?");
     expect(isPolicyRejected(new PolicyRejectedError({ ok: false, reason: "expired", next: "loginname" }, undefined))).toBe(true);
     expect(isPolicyRejected(new Error("x"))).toBe(false);
+  });
+
+  test("a user who set up TOTP gets no callback for an email code alone; registered methods unreadable → refused", async () => {
+    vi.mocked(zitadel.getSession).mockResolvedValue({ session: session({ otpEmail: { verifiedAt: at } }) } as any);
+    vi.mocked(zitadel.listAuthenticationMethodTypes).mockResolvedValue({
+      authMethodTypes: [AuthenticationMethodType.TOTP, AuthenticationMethodType.OTP_EMAIL],
+    } as any);
+    const ref = { sessionId: "s", sessionToken: "t" };
+    await expect(guardedCreateCallback({ serviceConfig: {} as any, authRequestId: "ar", session: ref })).rejects.toBeInstanceOf(PolicyRejectedError);
+    vi.mocked(zitadel.listAuthenticationMethodTypes).mockRejectedValue(new Error("down"));
+    await expect(guardedCreateCallback({ serviceConfig: {} as any, authRequestId: "ar", session: ref })).rejects.toBeInstanceOf(PolicyRejectedError);
+    expect(zitadel.createCallback).not.toHaveBeenCalled();
   });
 });

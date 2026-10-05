@@ -8,6 +8,7 @@ import {
   createResponse,
   getLoginSettings,
   getSession,
+  listAuthenticationMethodTypes,
   ServiceConfig,
 } from "../zitadel";
 import { isOtpFirstOrg } from "./org-lookup";
@@ -35,6 +36,13 @@ export function isPolicyRejected(error: unknown): error is PolicyRejectedError {
   return error instanceof PolicyRejectedError || (!!error && typeof error === "object" && (error as any).name === "PolicyRejectedError");
 }
 
+/** The user's registered methods, or undefined when they cannot be read (the policy then fails closed). */
+export async function registeredMethodsOf(serviceConfig: ServiceConfig, userId: string) {
+  return listAuthenticationMethodTypes({ serviceConfig, userId })
+    .then((r) => r.authMethodTypes ?? [])
+    .catch(() => undefined);
+}
+
 export async function assertSessionMayReceiveTokens({
   serviceConfig,
   session,
@@ -46,11 +54,13 @@ export async function assertSessionMayReceiveTokens({
     .then((r) => r?.session)
     .catch(() => undefined);
   const orgId = loaded?.factors?.user?.organizationId;
-  const [loginSettings, otpFirstOrg] = await Promise.all([
+  const userId = loaded?.factors?.user?.id;
+  const [loginSettings, otpFirstOrg, registeredMethods] = await Promise.all([
     orgId ? getLoginSettings({ serviceConfig, organization: orgId, fresh: true }) : Promise.resolve(undefined),
     isOtpFirstOrg(serviceConfig, orgId),
+    userId ? registeredMethodsOf(serviceConfig, userId) : Promise.resolve(undefined),
   ]);
-  const verdict = assertSessionSatisfiesPolicy({ session: loaded, loginSettings, otpFirstOrg });
+  const verdict = assertSessionSatisfiesPolicy({ session: loaded, loginSettings, otpFirstOrg, registeredMethods });
   if (!verdict.ok) {
     console.warn("[azdigi] token issuance refused", {
       sessionId: session.sessionId,
@@ -136,6 +146,8 @@ export function redirectForVerdict(
       return loginName ? `/otp/email?${params}` : `/loginname?${params}`;
     case "mfa":
       return loginName ? `/mfa?${params}` : `/loginname?${params}`;
+    case "passkey":
+      return loginName ? `/passkey?${params}` : `/loginname?${params}`;
     default:
       return `/loginname?${params}`;
   }
