@@ -3,7 +3,7 @@ import { DynamicTheme } from "@/components/dynamic-theme";
 import { LoginOTP } from "@/components/login-otp";
 import { Translated } from "@/components/translated";
 import { UserAvatar } from "@/components/user-avatar";
-import { maskPhone, OTP_CHANNEL_METADATA_KEY, OtpChannel, smsChannelsEnabled } from "@/lib/azdigi/otp-channel";
+import { availableChannels, maskPhone, OTP_CHANNEL_METADATA_KEY, OtpChannel, phoneChannels } from "@/lib/azdigi/otp-channel";
 import { decideOtpFirstForUser } from "@/lib/azdigi/otp-first";
 import { hasVerifiedFirstFactor } from "@/lib/azdigi/policy";
 import { getSessionCookieById } from "@/lib/cookies";
@@ -92,14 +92,17 @@ export default async function Page(props: {
   }
 
   // AZDIGI: channel choice (email · Zalo · SMS) for users with a verified phone once SMS delivery is enabled
-  let channels: { current: OtpChannel; phoneMasked: string } | undefined;
-  if (session?.factors?.user?.id && smsChannelsEnabled() && humanUser?.phone?.isVerified) {
+  let channels: { current: OtpChannel; phoneMasked: string; available: OtpChannel[] } | undefined;
+  const phones = phoneChannels();
+  if (session?.factors?.user?.id && phones.length > 0 && humanUser?.phone?.isVerified) {
     const stored = await getUserMetadata({ serviceConfig, userId: session.factors.user.id, key: OTP_CHANNEL_METADATA_KEY }).catch(
       () => undefined,
     );
     // the screen shows which channel is in use: /otp/sms carries zalo or sms (whatever was stored), /otp/email is email
-    const current: OtpChannel = method === "sms" ? (stored === "zalo" ? "zalo" : "sms") : "email";
-    channels = { current, phoneMasked: maskPhone(humanUser.phone.phone) };
+    // a stored channel that is not offered any more is shown as the phone channel that does carry the code
+    const phoneCurrent: OtpChannel = stored === "zalo" || stored === "sms" ? stored : "sms";
+    const current: OtpChannel = method === "sms" ? (phones.includes(phoneCurrent) ? phoneCurrent : phones[0]!) : "email";
+    channels = { current, phoneMasked: maskPhone(humanUser.phone.phone), available: availableChannels() };
   }
 
   // email links do not come with organization, thus we need to use the session's organization

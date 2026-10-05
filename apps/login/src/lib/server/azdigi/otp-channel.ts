@@ -1,6 +1,6 @@
 "use server";
 
-import { isOtpChannel, OTP_CHANNEL_METADATA_KEY, otpMethodForChannel, OtpChannel } from "@/lib/azdigi/otp-channel";
+import { availableChannels, isOtpChannel, OTP_CHANNEL_METADATA_KEY, otpMethodForChannel, OtpChannel } from "@/lib/azdigi/otp-channel";
 import { getServiceConfig } from "@/lib/service-url";
 import { loadMostRecentSession } from "@/lib/session";
 import { addOTPSMS, getUserByID, listAuthenticationMethodTypes, setUserMetadata } from "@/lib/zitadel";
@@ -26,7 +26,8 @@ export async function setOtpChannel(command: SetOtpChannelCommand): Promise<{ re
   const { serviceConfig } = getServiceConfig(_headers);
   const t = await getTranslations("otp.channel");
 
-  if (!isOtpChannel(command.channel)) {
+  // server-side too: a channel the picker does not offer (e.g. SMS while production is Zalo-only) is refused
+  if (!isOtpChannel(command.channel) || !availableChannels().includes(command.channel)) {
     return { error: t("errors.unknownChannel") };
   }
 

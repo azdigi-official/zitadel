@@ -30,3 +30,20 @@ export function maskPhone(phone: string | undefined): string {
 export function smsChannelsEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   return env.AZDIGI_SMS_ENABLED === "true";
 }
+
+/**
+ * Phone channels offered once SMS delivery is enabled (compose `AZDIGI_SMS_CHANNELS`, default `zalo,sms`). Production
+ * starts Zalo-only (no SMS provider yet): offering "SMS" there would promise a text message that never comes.
+ */
+export function phoneChannels(env: NodeJS.ProcessEnv = process.env): OtpChannel[] {
+  if (!smsChannelsEnabled(env)) {
+    return [];
+  }
+  const listed = (env.AZDIGI_SMS_CHANNELS ?? "zalo,sms").split(",").map((s) => s.trim());
+  return (["zalo", "sms"] as const).filter((channel) => listed.includes(channel));
+}
+
+/** Every channel the customer may pick right now: email always, plus the enabled phone channels. */
+export function availableChannels(env: NodeJS.ProcessEnv = process.env): OtpChannel[] {
+  return ["email", ...phoneChannels(env)];
+}

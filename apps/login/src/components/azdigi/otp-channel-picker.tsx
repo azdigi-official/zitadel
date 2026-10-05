@@ -10,6 +10,7 @@ import { useState } from "react";
 type Props = {
   current: OtpChannel;
   phoneMasked: string;
+  available: OtpChannel[];
   loginName?: string;
   organization?: string;
   requestId?: string;
@@ -18,16 +19,17 @@ type Props = {
 };
 
 /** "Receive the code via: Email · Zalo · SMS" above the code field; shown only with a verified phone and SMS enabled. */
-export function OtpChannelPicker({ current, phoneMasked, loginName, organization, requestId, altPassword, onError }: Props) {
+export function OtpChannelPicker({ current, phoneMasked, available, loginName, organization, requestId, altPassword, onError }: Props) {
   const t = useTranslations("otp.channel");
   const router = useRouter();
   const [busy, setBusy] = useState<OtpChannel | null>(null);
 
-  const choices: { channel: OtpChannel; label: string }[] = [
+  const all: { channel: OtpChannel; label: string }[] = [
     { channel: "email", label: t("email") },
     { channel: "zalo", label: t("zalo", { phone: phoneMasked }) },
     { channel: "sms", label: t("sms", { phone: phoneMasked }) },
   ];
+  const choices = all.filter((choice) => available.includes(choice.channel));
 
   async function choose(channel: OtpChannel) {
     if (channel === current || busy) {

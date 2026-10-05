@@ -36,7 +36,7 @@ type Props = {
   /** AZDIGI: offer the passkey as an alternative when the user registered one */
   altPasskey?: boolean;
   /** AZDIGI: channel choice (email · Zalo · SMS) when the user has a verified phone and SMS delivery is enabled */
-  channels?: { current: OtpChannel; phoneMasked: string };
+  channels?: { current: OtpChannel; phoneMasked: string; available: OtpChannel[] };
 };
 
 type Inputs = {
@@ -253,6 +253,7 @@ export function LoginOTP({
           <OtpChannelPicker
             current={channels.current}
             phoneMasked={channels.phoneMasked}
+            available={channels.available}
             loginName={loginName}
             organization={organization}
             requestId={requestId}

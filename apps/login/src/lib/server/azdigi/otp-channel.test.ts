@@ -26,6 +26,8 @@ describe("setOtpChannel", () => {
     vi.mocked(zitadel.getUserByID).mockResolvedValue(human(true) as any);
     vi.mocked(zitadel.listAuthenticationMethodTypes).mockResolvedValue({ authMethodTypes: [AuthenticationMethodType.OTP_EMAIL] } as any);
     vi.mocked(zitadel.setUserMetadata).mockResolvedValue({} as any);
+    vi.stubEnv("AZDIGI_SMS_ENABLED", "true");
+    vi.stubEnv("AZDIGI_SMS_CHANNELS", "zalo,sms");
   });
 
   test("zalo: grants otp_sms when missing, stores the metadata and sends to /otp/sms", async () => {
@@ -49,6 +51,15 @@ describe("setOtpChannel", () => {
     expect(await setOtpChannel({ channel: "pigeon" as any, loginName: "a@b.c" })).toEqual({ error: "errors.unknownChannel" });
     vi.mocked(session.loadMostRecentSession).mockResolvedValue(undefined);
     expect(await setOtpChannel({ channel: "email", loginName: "a@b.c" })).toEqual({ error: "errors.noSession" });
+  });
+
+  test("a phone channel that is not offered is refused before anything is written (Zalo-only, or SMS off)", async () => {
+    vi.stubEnv("AZDIGI_SMS_CHANNELS", "zalo");
+    expect(await setOtpChannel({ channel: "sms", loginName: "a@b.c" })).toEqual({ error: "errors.unknownChannel" });
+    vi.stubEnv("AZDIGI_SMS_ENABLED", "false");
+    expect(await setOtpChannel({ channel: "zalo", loginName: "a@b.c" })).toEqual({ error: "errors.unknownChannel" });
+    expect(await setOtpChannel({ channel: "email", loginName: "a@b.c" })).toEqual({ redirect: "/otp/email?loginName=a%40b.c" });
+    expect(zitadel.setUserMetadata).toHaveBeenCalledTimes(1);
   });
 
   test("a metadata write failure is reported, not thrown", async () => {
