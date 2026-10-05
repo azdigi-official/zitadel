@@ -485,5 +485,24 @@
     "failedLoading": "Không tải được dữ liệu. Hãy thử lại.",
     "tryagain": "Thử lại",
     "couldNotContinueSession": "Không tiếp tục được phiên - thiếu thông tin người dùng"
+  },
+  "denied": {
+    "title": "Không thể truy cập",
+    "switchAccount": "Đăng nhập bằng tài khoản khác",
+    "support": "Cần hỗ trợ? Liên hệ",
+    "reasons": {
+      "missing_email": "Tài khoản của bạn chưa có địa chỉ email nên không thể vào hệ thống này.",
+      "principal_not_found": "Không tìm thấy tài khoản khách hàng gắn với địa chỉ email này trong hệ thống.",
+      "provider_identity_not_linked": "Tài khoản đăng nhập này chưa được liên kết với tài khoản khách hàng của bạn.",
+      "client_deleted": "Tài khoản khách hàng gắn với đăng nhập này đã bị xoá.",
+      "client_user_inactive": "Tài khoản người dùng của bạn trong hệ thống đang ngừng hoạt động.",
+      "client_user_provider_locked": "Tài khoản người dùng của bạn trong hệ thống đang bị khoá.",
+      "client_user_provider_inactive": "Quyền đăng nhập của bạn vào hệ thống đang bị tắt.",
+      "client_banned": "Tài khoản khách hàng này đã bị khoá.",
+      "membership_not_found": "Bạn không còn là thành viên của tài khoản khách hàng này.",
+      "client_user_invite_acceptance_required": "Bạn cần chấp nhận lời mời tham gia tài khoản khách hàng trước khi đăng nhập.",
+      "eligibility_unavailable": "Hệ thống tạm thời không kiểm tra được quyền truy cập. Vui lòng thử lại sau ít phút.",
+      "not_eligible": "Tài khoản của bạn không được phép truy cập hệ thống này."
+    }
   }
 }

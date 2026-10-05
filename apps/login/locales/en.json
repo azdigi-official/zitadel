@@ -485,5 +485,24 @@
     "failedLoading": "Failed to load data. Please try again.",
     "tryagain": "Try Again",
     "couldNotContinueSession": "Could not continue with session - missing user information"
+  },
+  "denied": {
+    "title": "Access not possible",
+    "switchAccount": "Sign in with another account",
+    "support": "Need help? Contact",
+    "reasons": {
+      "missing_email": "Your account has no email address, so it cannot be used for this system.",
+      "principal_not_found": "No customer account is linked to this email address in the system.",
+      "provider_identity_not_linked": "This sign-in is not yet linked to your customer account.",
+      "client_deleted": "The customer account linked to this sign-in has been deleted.",
+      "client_user_inactive": "Your user in this system is inactive.",
+      "client_user_provider_locked": "Your user in this system is locked.",
+      "client_user_provider_inactive": "Signing in to this system is disabled for your user.",
+      "client_banned": "This customer account has been locked.",
+      "membership_not_found": "You are no longer a member of this customer account.",
+      "client_user_invite_acceptance_required": "Please accept the invitation to this customer account before signing in.",
+      "eligibility_unavailable": "The system cannot check your access right now. Please try again in a few minutes.",
+      "not_eligible": "Your account is not allowed to access this system."
+    }
   }
 }
