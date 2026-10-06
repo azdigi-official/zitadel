@@ -16,12 +16,14 @@ export type RejectReason =
   | "expired"
   | "no-settings"
   | "no-first-factor"
-  | "second-factor-missing";
+  | "second-factor-missing"
+  | "org-mismatch";
 
 /** Where to send the user when a verdict rejects the session. */
 export type NextStep = "loginname" | "password" | "otpEmail" | "mfa" | "passkey";
 
-export type PolicyVerdict = { ok: true } | { ok: false; reason: RejectReason; next: NextStep };
+/** `organization`: where to sign in instead (org-mismatch: the organisation the application asked for). */
+export type PolicyVerdict = { ok: true } | { ok: false; reason: RejectReason; next: NextStep; organization?: string };
 
 export type PolicyInput = {
   session: Session | undefined;

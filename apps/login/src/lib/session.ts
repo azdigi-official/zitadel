@@ -4,6 +4,7 @@ import { SAMLRequest } from "@zitadel/proto/zitadel/saml/v2/authorization_pb";
 import { Session } from "@zitadel/proto/zitadel/session/v2/session_pb";
 import { GetSessionResponse } from "@zitadel/proto/zitadel/session/v2/session_service_pb";
 import { registeredMethodsOf } from "./azdigi/issue";
+import { sessionInScopedOrg } from "./azdigi/org-scope";
 import { isOtpFirstOrg } from "./azdigi/org-lookup";
 import { assertSessionSatisfiesPolicy, PolicyVerdict } from "./azdigi/policy";
 import { getMostRecentCookieWithLoginname } from "./cookies";
@@ -107,6 +108,10 @@ export async function findValidSession({
   samlRequest?: SAMLRequest;
 }): Promise<Session | undefined> {
   const sessionsWithHint = sessions.filter((s) => {
+    // AZDIGI: an application that names its organisation never gets another organisation's session (#46)
+    if (authRequest && !sessionInScopedOrg(s, authRequest.scope)) {
+      return false;
+    }
     if (authRequest && authRequest.hintUserId) {
       return s.factors?.user?.id === authRequest.hintUserId;
     }

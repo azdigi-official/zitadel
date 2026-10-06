@@ -6,12 +6,14 @@ import {
   authorizeOrDenyDeviceAuthorization,
   createCallback,
   createResponse,
+  getAuthRequest,
   getLoginSettings,
   getSession,
   listAuthenticationMethodTypes,
   ServiceConfig,
 } from "../zitadel";
 import { isOtpFirstOrg } from "./org-lookup";
+import { requiredOrgIds } from "./org-scope";
 import { assertSessionSatisfiesPolicy, PolicyVerdict } from "./policy";
 
 /**
@@ -82,7 +84,25 @@ export async function guardedCreateCallback({
   authRequestId: string;
   session: SessionRef;
 }) {
-  await assertSessionMayReceiveTokens({ serviceConfig, session });
+  const loaded = await assertSessionMayReceiveTokens({ serviceConfig, session });
+  // the application's organisation scope: Zitadel would issue tokens for a user of any organisation (#46)
+  // a finished auth request is gone from Zitadel (NotFound): keep the callers' "already handled" path (code 9) working;
+  // an auth request that cannot be read is never answered with tokens
+  const authRequest = await getAuthRequest({ serviceConfig, authRequestId })
+    .then((r) => r?.authRequest)
+    .catch((error) => {
+      if (error?.code === 5) throw Object.assign(new Error("auth request already handled"), { code: 9 });
+      throw error;
+    });
+  if (!authRequest) {
+    throw Object.assign(new Error("auth request not readable"), { code: 9 });
+  }
+  const required = await requiredOrgIds(serviceConfig, authRequest.scope);
+  const orgId = loaded.factors?.user?.organizationId ?? "";
+  if (required && !required.has(orgId)) {
+    console.warn("[azdigi] token issuance refused", { sessionId: session.sessionId, userId: loaded.factors?.user?.id, organizationId: orgId, reason: "org-mismatch" });
+    throw new PolicyRejectedError({ ok: false, reason: "org-mismatch", next: "loginname", organization: Array.from(required)[0] }, loaded);
+  }
   return createCallback({
     serviceConfig,
     req: create(CreateCallbackRequestSchema, {
@@ -134,8 +154,10 @@ export function redirectForVerdict(
   requestId?: string,
 ): string {
   const params = new URLSearchParams();
-  const loginName = session?.factors?.user?.loginName;
-  const organization = session?.factors?.user?.organizationId;
+  // org-mismatch: start over in the organisation the application asked for, without the other account's name
+  const mismatch = verdict.reason === "org-mismatch";
+  const loginName = mismatch ? undefined : session?.factors?.user?.loginName;
+  const organization = mismatch ? verdict.organization : session?.factors?.user?.organizationId;
   if (loginName) params.append("loginName", loginName);
   if (organization) params.append("organization", organization);
   if (requestId) params.append("requestId", requestId);

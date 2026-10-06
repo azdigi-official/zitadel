@@ -2,7 +2,7 @@ import { idpTypeToSlug } from "@/lib/idp";
 import { sendLoginname, SendLoginnameCommand } from "@/lib/server/loginname";
 import { constructUrl } from "@/lib/service-url";
 import { findValidSession } from "@/lib/session";
-import { guardedCreateCallback, guardedCreateResponse } from "@/lib/azdigi/issue";
+import { guardedCreateCallback, guardedCreateResponse, isPolicyRejected } from "@/lib/azdigi/issue";
 import {
   getActiveIdentityProviders,
   getAuthRequest,
@@ -261,7 +261,17 @@ export async function handleOIDCFlowInitiation(params: FlowInitiationParams): Pr
         sessionToken: cookie.token,
       };
 
-      const { callbackUrl } = await guardedCreateCallback({ serviceConfig, authRequestId: requestId.replace("oidc_", ""), session });
+      // AZDIGI: prompt=none answers a refused session (policy, organisation scope) like a missing one, never with a 500
+      const callback = await guardedCreateCallback({ serviceConfig, authRequestId: requestId.replace("oidc_", ""), session }).catch(
+        (error: unknown) => {
+          if (isPolicyRejected(error)) return undefined;
+          throw error;
+        },
+      );
+      if (!callback) {
+        return noSessionResponse;
+      }
+      const { callbackUrl } = callback;
 
       const callbackResponse = NextResponse.redirect(callbackUrl);
 
