@@ -12,8 +12,9 @@ import { PasskeysType } from "@zitadel/proto/zitadel/settings/v2/login_settings_
 import { IDPLink } from "@zitadel/proto/zitadel/user/v2/idp_pb";
 import { UserState } from "@zitadel/proto/zitadel/user/v2/user_pb";
 import { estimateUnlockAt, orgKindFromSettings } from "../azdigi/lockout";
+import { decoyOtpRedirect, withMinimumDuration } from "../azdigi/decoy";
 import { isOtpFirstOrg } from "../azdigi/org-lookup";
-import { decideOtpFirst, otpFirstParams } from "../azdigi/otp-first";
+import { decideOtpFirst, otpFirstAlternatives, otpFirstParams } from "../azdigi/otp-first";
 import { getServiceConfig } from "../service-url";
 import {
   getActiveIdentityProviders,
@@ -40,7 +41,12 @@ export type SendLoginnameCommand = {
 
 const ORG_SUFFIX_REGEX = /(?<=@)(.+)/;
 
+/** AZDIGI: answers take a minimum time (decoy.ts) so a fast "unknown" or "known" answer does not stand out. */
 export async function sendLoginname(command: SendLoginnameCommand) {
+  return withMinimumDuration(() => sendLoginnameNow(command));
+}
+
+async function sendLoginnameNow(command: SendLoginnameCommand) {
   const _headers = await headers();
   const { serviceConfig } = getServiceConfig(_headers);
 
@@ -87,7 +93,17 @@ export async function sendLoginname(command: SendLoginnameCommand) {
     console.log("No users found, will proceed with org discovery");
   }
 
-  const preventUserEnumeration = (organization: string | undefined) => {
+  const preventUserEnumeration = async (organization: string | undefined) => {
+    // AZDIGI: a customer (or context-free) entry never says "user not found" — the decoy email-code page looks like a real
+    // customer account; it comes first because the context-free settings are the default organisation's (staff policy)
+    const decoy = await decoyOtpRedirect(serviceConfig, {
+      loginName: command.loginName,
+      contextOrg: organization,
+      requestId: command.requestId,
+    });
+    if (decoy) {
+      return decoy;
+    }
     if (command.ignoreUnknownUsernames) {
       console.log("ignoreUnknownUsernames is true, redirecting to password");
       const paramsPasswordDefault = new URLSearchParams({
@@ -250,20 +266,24 @@ export async function sendLoginname(command: SendLoginnameCommand) {
 
     // compare with the concatenated suffix when set
     const concatLoginname = command.suffix ? `${command.loginName}@${command.suffix}` : command.loginName;
+    // AZDIGI: login names and emails compare case-insensitively (an email typed in capitals is the same account)
+    const same = (a: string | undefined, b: string | undefined) => !!a && !!b && a.toLowerCase() === b.toLowerCase();
 
     const humanUser = users[0].type.case === "human" ? users[0].type.value : undefined;
 
     // recheck login settings after user discovery, as the search might have been done without org scope
     if (userLoginSettings?.disableLoginWithEmail && userLoginSettings?.disableLoginWithPhone) {
-      if (user.preferredLoginName !== concatLoginname) {
+      if (!same(user.preferredLoginName, concatLoginname)) {
         return preventUserEnumeration(command.organization);
       }
     } else if (userLoginSettings?.disableLoginWithEmail) {
-      if (user.preferredLoginName !== concatLoginname || humanUser?.phone?.phone !== command.loginName) {
+      // AZDIGI: the user name OR the phone may be typed (upstream demanded both, so a user whose name differs failed)
+      if (!(same(user.preferredLoginName, concatLoginname) || humanUser?.phone?.phone === command.loginName)) {
         return preventUserEnumeration(command.organization);
       }
     } else if (userLoginSettings?.disableLoginWithPhone) {
-      if (user.preferredLoginName !== concatLoginname || humanUser?.email?.email !== command.loginName) {
+      // AZDIGI: the user name OR the email may be typed (a customer whose email changed keeps the old user name)
+      if (!(same(user.preferredLoginName, concatLoginname) || same(humanUser?.email?.email, command.loginName))) {
         return preventUserEnumeration(command.organization);
       }
     }
@@ -380,16 +400,12 @@ export async function sendLoginname(command: SendLoginnameCommand) {
         redirect:
           "/otp/email?" +
           otpFirstParams({
-            loginName: command.ignoreUnknownUsernames
-              ? command.loginName
-              : (session?.factors?.user?.loginName ?? user.preferredLoginName),
+            // AZDIGI: always the account's own login name — the email-code page finds its session cookie by it, and the
+            // decoy for unknown names shows the same normalised form (the context-free settings ignore unknown names)
+            loginName: session?.factors?.user?.loginName ?? user.preferredLoginName ?? command.loginName,
             organization,
             requestId: command.requestId,
-            altPassword:
-              otpFirst.altPassword &&
-              !!userLoginSettings?.allowLocalAuthentication &&
-              !!userLoginSettings?.allowUsernamePassword,
-            altPasskey: otpFirst.altPasskey && !!userLoginSettings?.allowLocalAuthentication,
+            ...otpFirstAlternatives(userLoginSettings),
           }),
       };
     }
@@ -576,6 +592,17 @@ export async function sendLoginname(command: SendLoginnameCommand) {
     } else {
       console.log("no single org found for discovery");
     }
+  }
+
+  // AZDIGI: no "register with this email?" for an unknown name in a customer context: that page would tell the name is
+  // free; the decoy email-code page looks like a real account instead (registration stays reachable from the login page)
+  const decoy = await decoyOtpRedirect(serviceConfig, {
+    loginName: command.loginName,
+    contextOrg: discoveredOrganization,
+    requestId: command.requestId,
+  });
+  if (decoy) {
+    return decoy;
   }
 
   // user not found, check if register is enabled on instance / organization context

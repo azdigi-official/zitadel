@@ -42,6 +42,13 @@ vi.mock("../azdigi/org-lookup", () => ({
   isOtpFirstOrg: vi.fn(async () => false),
 }));
 
+// the AZDIGI decoy (customer context) is tested in lib/azdigi/decoy.test.ts and the AZDIGI cases below; the stock cases
+// here keep their upstream outcome
+vi.mock("../azdigi/decoy", () => ({
+  decoyOtpRedirect: vi.fn().mockResolvedValue(undefined),
+  withMinimumDuration: (run: () => Promise<unknown>) => run(),
+}));
+
 vi.mock("./host", () => ({
   getInstanceHost: vi.fn(),
   getPublicHost: vi.fn(),

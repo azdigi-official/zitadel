@@ -28,6 +28,7 @@ vi.mock("../cookies", () => ({
 }));
 vi.mock("./cookie", () => ({ createSessionAndUpdateCookie: vi.fn(), setSessionAndUpdateCookie: vi.fn() }));
 vi.mock("../zitadel", () => ({
+  listUsers: vi.fn(),
   deleteSession: vi.fn(),
   getLoginSettings: vi.fn(),
   getSecuritySettings: vi.fn(),
@@ -38,6 +39,12 @@ vi.mock("../zitadel", () => ({
   listUsers: vi.fn(),
 }));
 vi.mock("../azdigi/otp-first", () => ({ decideOtpFirstForUser: vi.fn() }));
+vi.mock("../azdigi/decoy", () => ({
+  withMinimumDuration: (run: () => Promise<unknown>) => run(),
+  decoyLoginName: (name: string) => name.trim().toLowerCase(),
+  decoyOrganization: vi.fn(async () => "o1"),
+}));
+vi.mock("../azdigi/org-lookup", () => ({ isOtpFirstOrg: vi.fn(async (_cfg: unknown, org?: string) => org === "o1") }));
 
 const at = { seconds: BigInt(Math.floor(Date.now() / 1000) - 10), nanos: 0 };
 const recentCookie = { id: "s1", token: "tok", loginName: "a@b.c", organization: "o1", creationTs: "", expirationTs: "", changeTs: "" } as any;
@@ -170,7 +177,21 @@ describe("updateOrCreateSession", () => {
     expect(await attempt()).toEqual({ error: 'codeInvalid:{"remaining":1}', failedAttempts: undefined });
   });
 
+  test("without a cookie, a name that is not an account of the OTP-first organisation gets the decoy answers", async () => {
+    vi.mocked(cookies.getSessionCookieByLoginName).mockResolvedValue(undefined as any);
+    for (const found of [{ details: { totalResult: BigInt(0) }, result: [] }, { details: { totalResult: BigInt(1) }, result: [{ userId: "s", details: { resourceOwner: "staff" } }] }]) {
+      vi.mocked(zitadel.listUsers).mockResolvedValue(found as any);
+      // whatever organisation the browser claims, the decision comes from the account found
+      expect(await updateOrCreateSession({ loginName: "Ghost@x.test", organization: "o1", challenges: create(RequestChallengesSchema, { otpEmail: {} }) })).toEqual({});
+      const wrong = await updateOrCreateSession({ loginName: "ghost@x.test", organization: "staff", checks: create(ChecksSchema, { otpEmail: { code: "000000" } }) });
+      expect(wrong.error).toMatch(/^codeInvalid|^tooManyCodeAttempts/);
+    }
+    expect(cookie.createSessionAndUpdateCookie).not.toHaveBeenCalled();
+    expect(cookie.setSessionAndUpdateCookie).not.toHaveBeenCalled();
+  });
+
   test("without a cookie the session is created with a user check only, challenges come afterwards", async () => {
+    vi.mocked(zitadel.listUsers).mockResolvedValue({ details: { totalResult: BigInt(1) }, result: [{ userId: "u1", details: { resourceOwner: "o1" } }] } as any);
     vi.mocked(cookies.getSessionCookieByLoginName).mockResolvedValue(undefined as any);
     vi.mocked(cookie.createSessionAndUpdateCookie).mockResolvedValue({ session: liveSession(), sessionCookie: recentCookie } as any);
     vi.mocked(zitadel.getSession).mockResolvedValue({ session: liveSession() } as any);

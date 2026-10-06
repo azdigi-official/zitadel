@@ -4,6 +4,7 @@ import { LoginOTP } from "@/components/login-otp";
 import { Translated } from "@/components/translated";
 import { UserAvatar } from "@/components/user-avatar";
 import { availableChannels, maskPhone, OTP_CHANNEL_METADATA_KEY, OtpChannel, phoneChannels } from "@/lib/azdigi/otp-channel";
+import { decoyLoginName, decoyOrganization } from "@/lib/azdigi/decoy";
 import { decideOtpFirstForUser } from "@/lib/azdigi/otp-first";
 import { hasVerifiedFirstFactor } from "@/lib/azdigi/policy";
 import { getSessionCookieById } from "@/lib/cookies";
@@ -105,6 +106,16 @@ export default async function Page(props: {
     channels = { current, phoneMasked: maskPhone(humanUser.phone.phone), available: availableChannels() };
   }
 
+  // AZDIGI: an unknown name in a customer context lands here without a session (lib/azdigi/decoy.ts): render the same
+  // first-factor screen as for a real customer. The first-factor screen never shows the account's display name.
+  const decoy = !session && method === "email" && !!loginName && !sessionId && !!(await decoyOrganization(serviceConfig, organization));
+  const firstFactor = decoy || (!!session && !hasVerifiedFirstFactor(session));
+  // no session outside a customer context (staff with ignoreUnknownUsernames start without one): the password page
+  if (!session && !decoy && method === "email" && loginName && !sessionId) {
+    redirect("/password?" + new URLSearchParams({ loginName, ...(organization && { organization }), ...(requestId && { requestId }) }));
+  }
+  const shownLoginName = decoy ? decoyLoginName(loginName!) : (loginName ?? session?.factors?.user?.loginName);
+
   // email links do not come with organization, thus we need to use the session's organization
   const branding = await getBrandingSettings({
     serviceConfig,
@@ -121,7 +132,7 @@ export default async function Page(props: {
       <div className="flex flex-col space-y-4">
         <h1>
           <Translated
-            i18nKey={session && !hasVerifiedFirstFactor(session) ? "verify.firstFactorTitle" : "verify.title"}
+            i18nKey={firstFactor ? "verify.firstFactorTitle" : "verify.title"}
             namespace="otp"
           />
         </h1>
@@ -138,13 +149,13 @@ export default async function Page(props: {
         {method === "email" && (
           <p className="ztdl-p">
             <Translated
-              i18nKey={session && !hasVerifiedFirstFactor(session) ? "verify.emailFirstDescription" : "verify.emailDescription"}
+              i18nKey={firstFactor ? "verify.emailFirstDescription" : "verify.emailDescription"}
               namespace="otp"
             />
           </p>
         )}
 
-        {!session && (
+        {!session && !decoy && (
           <div className="py-4">
             <Alert>
               <Translated i18nKey="unknownContext" namespace="error" />
@@ -152,10 +163,10 @@ export default async function Page(props: {
           </div>
         )}
 
-        {session && (
+        {(session || decoy) && (
           <UserAvatar
-            loginName={loginName ?? session.factors?.user?.loginName}
-            displayName={session.factors?.user?.displayName}
+            loginName={shownLoginName}
+            displayName={firstFactor ? shownLoginName : session?.factors?.user?.displayName}
             showDropdown
             searchParams={searchParams}
           ></UserAvatar>
@@ -163,9 +174,9 @@ export default async function Page(props: {
       </div>
 
       <div className="w-full">
-        {method && session && (
+        {method && (session || decoy) && (
           <LoginOTP
-            loginName={loginName ?? session.factors?.user?.loginName}
+            loginName={shownLoginName}
             sessionId={sessionId}
             requestId={requestId}
             organization={organization ?? session?.factors?.user?.organizationId}

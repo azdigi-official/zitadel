@@ -43,6 +43,19 @@ export function decideOtpFirst({ otpFirstOrg, loginSettings, authMethods, emailV
   };
 }
 
+/**
+ * The "use your password / passkey instead" links on the email-code page come from the organisation's policy, not from
+ * the account's methods: an account with a password must look like one without (and like an unknown name, decoy.ts).
+ * Owner decision 06/10/2026.
+ */
+export function otpFirstAlternatives(loginSettings: LoginSettings | undefined): { altPassword: boolean; altPasskey: boolean } {
+  const local = !!loginSettings?.allowLocalAuthentication;
+  return {
+    altPassword: local && !!loginSettings?.allowUsernamePassword,
+    altPasskey: local && loginSettings?.passkeysType === PasskeysType.ALLOWED,
+  };
+}
+
 /** Same decision from live data (fresh settings, allow-list lookup, auth methods). */
 export async function decideOtpFirstForUser({
   serviceConfig,

@@ -33,6 +33,7 @@ import {
   checkUserVerification,
 } from "../verify-helper";
 import { getPublicHostWithProtocol } from "./host";
+import { hidingUnknownAccounts, withMinimumDuration } from "../azdigi/decoy";
 
 type ResetPasswordCommand = {
   loginName: string;
@@ -41,7 +42,14 @@ type ResetPasswordCommand = {
   requestId?: string;
 };
 
+const sameName = (a: string | undefined, b: string | undefined) => !!a && !!b && a.toLowerCase() === b.toLowerCase();
+
+/** AZDIGI: a minimum duration so a fast "unknown" answer (or the 2 s upstream sleep) does not stand out. */
 export async function resetPassword(command: ResetPasswordCommand) {
+  return withMinimumDuration(() => resetPasswordNow(command), 2000, 500);
+}
+
+async function resetPasswordNow(command: ResetPasswordCommand) {
   const _headers = await headers();
   const { serviceConfig } = getServiceConfig(_headers);
 
@@ -50,10 +58,11 @@ export async function resetPassword(command: ResetPasswordCommand) {
   // Get the original host that the user sees with protocol
   const hostWithProtocol = await getPublicHostWithProtocol(_headers);
 
-  const loginSettings = await getLoginSettings({
+  const loginSettings = await hidingUnknownAccounts(
     serviceConfig,
-    organization: command.organization ?? command.defaultOrganization,
-  });
+    await getLoginSettings({ serviceConfig, organization: command.organization ?? command.defaultOrganization }),
+    command.organization ?? command.defaultOrganization,
+  );
 
   if (!loginSettings) {
     return { error: t("errors.couldNotSendResetLink") };
@@ -82,10 +91,14 @@ export async function resetPassword(command: ResetPasswordCommand) {
   const user = searchResult.result[0];
   const humanUser = user.type.case === "human" ? user.type.value : undefined;
 
-  const userLoginSettings = await getLoginSettings({ serviceConfig, organization: user.details?.resourceOwner });
+  const userLoginSettings = await hidingUnknownAccounts(
+    serviceConfig,
+    await getLoginSettings({ serviceConfig, organization: user.details?.resourceOwner }),
+    user.details?.resourceOwner,
+  );
 
   if (userLoginSettings?.disableLoginWithEmail && userLoginSettings?.disableLoginWithPhone) {
-    if (user.preferredLoginName !== command.loginName) {
+    if (!sameName(user.preferredLoginName, command.loginName)) {
       if (userLoginSettings?.ignoreUnknownUsernames) {
         await new Promise((resolve) => setTimeout(resolve, 2000));
         return {};
@@ -93,7 +106,8 @@ export async function resetPassword(command: ResetPasswordCommand) {
       return { error: t("errors.couldNotSendResetLink") };
     }
   } else if (userLoginSettings?.disableLoginWithEmail) {
-    if (user.preferredLoginName !== command.loginName || humanUser?.phone?.phone !== command.loginName) {
+    // AZDIGI: the user name OR the phone (upstream demanded both)
+    if (!(sameName(user.preferredLoginName, command.loginName) || humanUser?.phone?.phone === command.loginName)) {
       if (userLoginSettings?.ignoreUnknownUsernames) {
         await new Promise((resolve) => setTimeout(resolve, 2000));
         return {};
@@ -101,7 +115,8 @@ export async function resetPassword(command: ResetPasswordCommand) {
       return { error: t("errors.couldNotSendResetLink") };
     }
   } else if (userLoginSettings?.disableLoginWithPhone) {
-    if (user.preferredLoginName !== command.loginName || humanUser?.email?.email !== command.loginName) {
+    // AZDIGI: the user name OR the email (upstream demanded both)
+    if (!(sameName(user.preferredLoginName, command.loginName) || sameName(humanUser?.email?.email, command.loginName))) {
       if (userLoginSettings?.ignoreUnknownUsernames) {
         await new Promise((resolve) => setTimeout(resolve, 2000));
         return {};
@@ -183,10 +198,14 @@ export async function sendPassword(
 
   if (!sessionCookie) {
     if (!loginSettingsByContext) {
-      loginSettingsByContext = await getLoginSettings({
+      loginSettingsByContext = await hidingUnknownAccounts(
+        serviceConfig,
+        await getLoginSettings({
         serviceConfig,
         organization: command.organization ?? command.defaultOrganization,
-      });
+      }),
+        command.organization ?? command.defaultOrganization,
+      );
     }
 
     // Force fallback if settings can't be loaded
@@ -212,7 +231,11 @@ export async function sendPassword(
       user = searchResult.result[0];
       const humanUser = user.type.case === "human" ? user.type.value : undefined;
 
-      const userLoginSettings = await getLoginSettings({ serviceConfig, organization: user.details?.resourceOwner });
+      const userLoginSettings = await hidingUnknownAccounts(
+        serviceConfig,
+        await getLoginSettings({ serviceConfig, organization: user.details?.resourceOwner }),
+        user.details?.resourceOwner,
+      );
 
       // recheck login settings after user discovery, as the search might have been done without org scope
       if (userLoginSettings?.disableLoginWithEmail && userLoginSettings?.disableLoginWithPhone) {

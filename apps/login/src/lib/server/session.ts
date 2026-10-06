@@ -5,6 +5,8 @@ import { clientIpFromHeaders } from "@/lib/azdigi/client-ip";
 import { estimateUnlockAt, isLockedMessage, orgKindFromSettings } from "@/lib/azdigi/lockout";
 import { decideOtpFirstForUser } from "@/lib/azdigi/otp-first";
 import { hasVerifiedFirstFactor } from "@/lib/azdigi/policy";
+import { decoyLoginName, decoyOrganization, withMinimumDuration } from "@/lib/azdigi/decoy";
+import { isOtpFirstOrg } from "@/lib/azdigi/org-lookup";
 import { limiters } from "@/lib/azdigi/rate-limit";
 import { createSessionAndUpdateCookie, setSessionAndUpdateCookie } from "@/lib/server/cookie";
 import {
@@ -178,7 +180,45 @@ function passwordParams(loginName?: string, organization?: string, requestId?: s
   return params;
 }
 
+/** The answers a real customer gets on the email-code page, for an unknown name (same limits, same messages). */
+async function decoyOtpAnswer({
+  loginName,
+  organization,
+  tries,
+  ip,
+  t,
+}: {
+  loginName: string;
+  organization?: string;
+  tries: boolean;
+  ip?: string;
+  t: Awaited<ReturnType<typeof getTranslations>>;
+}): Promise<UpdateSessionResult> {
+  const name = decoyLoginName(loginName);
+  if (tries) {
+    const key = `decoy:${organization}:${name}`;
+    const attempts = limiters.otpVerifyPerUser.hit(key);
+    if (!attempts.allowed) {
+      return { error: t("tooManyCodeAttempts", { minutes: Math.max(1, Math.ceil(attempts.retryAfterMs / 60000)) }) };
+    }
+    return { error: t("codeInvalid", { remaining: limiters.otpVerifyPerUser.peek(key).remaining }) };
+  }
+  const perLogin = limiters.otpSendPerLogin.hit(`login:${organization}:${name}`);
+  const perIp = ip ? limiters.otpSendPerIp.hit(`ip:${ip}`) : { allowed: true, retryAfterMs: 0 };
+  if (!perLogin.allowed || !perIp.allowed) {
+    const retryAfterMs = Math.max(perLogin.retryAfterMs, perIp.retryAfterMs);
+    return { error: t("tooManyCodeRequests", { minutes: Math.max(1, Math.ceil(retryAfterMs / 60000)) }) };
+  }
+  return {};
+}
+
 export async function updateOrCreateSession(options: UpdateSessionCommand): Promise<UpdateSessionResult> {
+  // AZDIGI: code requests and code checks take a minimum time (decoy.ts), real or decoy
+  const otp = !!(options.challenges?.otpEmail || options.challenges?.otpSms || options.checks?.otpEmail || options.checks?.otpSms);
+  return otp ? withMinimumDuration(() => updateOrCreateSessionNow(options)) : updateOrCreateSessionNow(options);
+}
+
+async function updateOrCreateSessionNow(options: UpdateSessionCommand): Promise<UpdateSessionResult> {
   const { loginName, sessionId, organization, checks, requestId } = options;
 
   const _headers = await headers();
@@ -204,6 +244,18 @@ export async function updateOrCreateSession(options: UpdateSessionCommand): Prom
   if (!recentSession) {
     if (!loginName) {
       return { error: t("couldNotFindSession") };
+    }
+
+    // AZDIGI: an email code as the first factor without a session cookie — only an account of the OTP-first organisation
+    // continues; any other name (unknown, staff, another organisation) gets the decoy answers (decoy.ts). Decided from the
+    // account found, never from the organisation the browser sends.
+    if (!sessionId && (challenges?.otpEmail || checks?.otpEmail)) {
+      const otpOrg = await decoyOrganization(serviceConfig, undefined);
+      const found = await listUsers({ serviceConfig, loginName: decoyLoginName(loginName) }).catch(() => undefined);
+      const account = found?.details?.totalResult === BigInt(1) ? found.result[0] : undefined;
+      if (otpOrg && !(account && (await isOtpFirstOrg(serviceConfig, account.details?.resourceOwner)))) {
+        return decoyOtpAnswer({ loginName, organization: otpOrg, tries: !!checks?.otpEmail, ip: clientIpFromHeaders(_headers), t });
+      }
     }
 
     // user check only; challenges are requested below once the session is known to be allowed to receive them
@@ -382,6 +434,12 @@ export async function updateOrCreateSession(options: UpdateSessionCommand): Prom
 
   // @ts-ignore
   const issued: Challenges | undefined = session.challenges;
+
+  // AZDIGI: asking for a code proves nothing yet — return no user id, organisation or display name to the browser
+  // (the decoy page could not return them either)
+  if (wantsOtpSend && !checks) {
+    return {};
+  }
 
   return {
     sessionId: session.id,
