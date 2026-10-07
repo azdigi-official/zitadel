@@ -1,0 +1,390 @@
+// AZDIGI design system for the login (#48): the AntiWHMCS "soft-clay" sign-in look
+// (anti_whmcs frontend/src/shared/theme/soft-clay-tokens.ts, enterprise-theme.ts, client/auth/components/guest-auth-frame.tsx).
+// Everything is scoped under `.azdigi-auth` (components/azdigi/auth-frame.tsx) so upstream components stay untouched.
+
+:root {
+  --azdigi-page: #f1f5f9;
+  --azdigi-navy: #0f172a;
+  --azdigi-text: #0f172a;
+  --azdigi-text-secondary: #475569;
+  --azdigi-primary: #2563eb;
+  --azdigi-primary-dark: #1d4ed8;
+  --azdigi-error: #dc2626;
+  --azdigi-input-border: #d8e0ec;
+  --azdigi-input-border-hover: #c5d2e4;
+  --azdigi-focus-ring: 0 0 0 3px rgba(37, 99, 235, 0.28);
+  --azdigi-error-ring: 0 0 0 3px rgba(220, 38, 38, 0.12);
+  --azdigi-shadow-button: 0 6px 14px -8px rgba(37, 99, 235, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  --azdigi-radius-input: 10px;
+  --azdigi-radius-button: 12px;
+}
+
+body,
+.azdigi-page {
+  background: var(--azdigi-page);
+  color: var(--azdigi-text);
+}
+
+.azdigi-auth {
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 16px;
+
+  @media (min-width: 768px) {
+    padding: 24px;
+  }
+}
+
+.azdigi-auth__grid {
+  display: grid;
+  gap: 16px;
+
+  @media (min-width: 900px) {
+    grid-template-columns: 5fr 7fr;
+    gap: 24px;
+    align-items: start;
+  }
+}
+
+// Brand card (GuestAuthFrame left column)
+.azdigi-auth__brand {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 20px;
+  border-radius: 11px;
+  background: var(--azdigi-navy);
+  color: #e2e8f0;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  box-shadow: 0 16px 36px rgba(15, 23, 42, 0.14);
+
+  @media (min-width: 900px) {
+    gap: 18px;
+    padding: 28px;
+  }
+}
+
+.azdigi-auth__logo {
+  align-self: center;
+  display: inline-flex;
+  padding: 12px 20px;
+  border-radius: 20px;
+  background: #ffffff;
+
+  img {
+    display: block;
+    width: 152px;
+    max-width: 100%;
+    height: auto;
+    object-fit: contain;
+  }
+}
+
+.azdigi-auth__eyebrow {
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.6;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: #93c5fd;
+}
+
+.azdigi-auth__title {
+  margin: 0;
+  font-size: 1.75rem;
+  font-weight: 900;
+  line-height: 1.1;
+  color: #f8fafc;
+
+  @media (min-width: 900px) {
+    font-size: 3rem;
+    line-height: 1.05;
+  }
+}
+
+.azdigi-auth__description {
+  margin: 0;
+  max-width: 460px;
+  font-size: 1rem;
+  line-height: 1.6;
+  color: #cbd5e1;
+}
+
+.azdigi-auth__highlights {
+  margin: auto 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+
+  li {
+    padding: 10px 12px;
+    border-radius: 6px;
+    background: rgba(15, 23, 42, 0.24);
+    border: 1px solid rgba(148, 163, 184, 0.14);
+    color: #e2e8f0;
+    font-size: 0.95rem;
+    line-height: 1.5;
+  }
+}
+
+// Phones: the brand card is a strip (logo + title) above the form
+@media (max-width: 899px) {
+  .azdigi-auth__brand {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 14px;
+    padding: 14px 16px;
+  }
+  .azdigi-auth__logo {
+    align-self: auto;
+    padding: 8px 12px;
+    border-radius: 14px;
+
+    img {
+      width: 112px;
+    }
+  }
+  .azdigi-auth__eyebrow,
+  .azdigi-auth__description,
+  .azdigi-auth__highlights {
+    display: none;
+  }
+  .azdigi-auth__title {
+    font-size: 1.125rem;
+    font-weight: 800;
+  }
+}
+
+// Form card (LoginLauncherCard Paper)
+.azdigi-auth__main {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.azdigi-auth__card {
+  width: 100%;
+  max-width: 560px;
+  padding: 24px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  box-shadow: 0 26px 60px rgba(15, 23, 42, 0.12);
+
+  @media (min-width: 900px) {
+    padding: 32px;
+  }
+}
+
+.azdigi-auth__heading {
+  margin-bottom: 20px;
+  text-align: left;
+}
+
+// page titles (two-child pages put them in the heading, single-child pages inside the form)
+.azdigi-auth__card {
+  h1 {
+    margin: 0 0 8px;
+    font-size: 2rem;
+    font-weight: 800;
+    line-height: 1.15;
+    letter-spacing: -0.02em;
+    color: var(--azdigi-text);
+    text-align: left;
+
+    @media (min-width: 900px) {
+      font-size: 2.5rem;
+    }
+  }
+
+  p {
+    margin: 0;
+    font-size: 1rem;
+    line-height: 1.6;
+    color: var(--azdigi-text-secondary);
+    text-align: left;
+  }
+}
+
+// ---- Form components (soft-clay inputs and buttons, enterprise-theme.ts MuiOutlinedInput / MuiButton) ----
+
+.azdigi-auth__card {
+  // labels of TextInput (label.flex-col > span)
+  label.flex-col > span:first-child {
+    margin-bottom: 6px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    line-height: 1.4;
+    color: var(--azdigi-text);
+  }
+
+  input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]) {
+    height: 44px;
+    padding: 10px 14px;
+    border: 1px solid var(--azdigi-input-border);
+    border-radius: var(--azdigi-radius-input);
+    background: #ffffff;
+    font-size: 0.95rem;
+    font-weight: 500;
+    color: var(--azdigi-text);
+    transition:
+      border-color 150ms ease,
+      box-shadow 150ms ease;
+
+    &::placeholder {
+      font-style: normal;
+      color: #94a3b8;
+    }
+    &:hover {
+      border-color: var(--azdigi-input-border-hover);
+    }
+    &:focus {
+      border-color: var(--azdigi-primary);
+      box-shadow: var(--azdigi-focus-ring);
+    }
+    // TextInput error state
+    &.border-warn-light-500 {
+      border-color: var(--azdigi-error);
+      &:focus {
+        box-shadow: var(--azdigi-error-ring);
+      }
+    }
+    &:disabled,
+    &.pointer-events-none {
+      background: #f8fafc;
+      border-color: #e5e7eb;
+      color: #64748b;
+    }
+  }
+
+  // Buttons: Primary (bg-primary-*) and Secondary (bordered)
+  button.bg-primary-light-500,
+  button.bg-warn-light-500,
+  button.border-button-light-border {
+    min-height: 44px;
+    padding: 0 20px;
+    border-radius: var(--azdigi-radius-button);
+    font-size: 0.95rem;
+    font-weight: 600;
+    line-height: 1.2;
+    justify-content: center;
+  }
+
+  button.bg-primary-light-500 {
+    background: var(--azdigi-primary);
+    color: #ffffff;
+    border: 0;
+    box-shadow: var(--azdigi-shadow-button);
+
+    &:hover {
+      background: var(--azdigi-primary-dark);
+    }
+    &:focus-visible {
+      box-shadow:
+        var(--azdigi-shadow-button),
+        0 0 0 3px rgba(37, 99, 235, 0.35);
+    }
+    &:disabled {
+      background: #e2e8f0;
+      color: #64748b;
+      box-shadow: none;
+    }
+  }
+
+  button.border-button-light-border:not(.bg-primary-light-500):not(.bg-warn-light-500):not(.text-warn-light-500) {
+    background: #ffffff;
+    border: 1px solid var(--azdigi-input-border);
+    color: var(--azdigi-text);
+
+    &:hover:not(:disabled) {
+      background: #f8fafc;
+      border-color: var(--azdigi-input-border-hover);
+    }
+    &:focus-visible {
+      box-shadow: var(--azdigi-focus-ring);
+      border-color: var(--azdigi-primary);
+    }
+  }
+
+  // Alert (components/alert.tsx root carries scroll-px-40)
+  .scroll-px-40 {
+    border-radius: 12px;
+    padding-top: 10px;
+    padding-bottom: 10px;
+    font-size: 0.9rem;
+  }
+
+  input[type="checkbox"] {
+    border-radius: 4px;
+    border-color: #64748b;
+    color: var(--azdigi-primary);
+
+    &:focus-visible {
+      outline: 2px solid var(--azdigi-primary);
+      outline-offset: 2px;
+    }
+  }
+
+  a {
+    color: var(--azdigi-primary);
+    font-weight: 600;
+
+    &:hover {
+      text-decoration: underline;
+    }
+  }
+
+  .ztdl-p {
+    font-size: 0.95rem;
+    color: var(--azdigi-text-secondary);
+  }
+}
+
+// ---- Layout guards for narrow screens ----
+
+// grid children default to min-width:auto, which lets a wide form push the page sideways
+.azdigi-auth__main,
+.azdigi-auth__card,
+.azdigi-auth__form {
+  min-width: 0;
+}
+
+.azdigi-auth__card {
+  overflow-wrap: anywhere;
+
+  // registration method picker (authentication-method-radio.tsx): soft-clay tiles that may shrink
+  [data-testid$="-radio"] {
+    min-width: 0;
+    padding: 14px 8px;
+    border-radius: 12px;
+    border-color: var(--azdigi-input-border);
+    background: #ffffff;
+    text-align: center;
+  }
+
+  button.bg-primary-light-500,
+  button.border-button-light-border {
+    white-space: nowrap;
+  }
+}
+
+@media (max-width: 899px) {
+  .azdigi-auth__heading h1 {
+    font-size: 1.75rem;
+  }
+
+  // rows of buttons (back / alternatives / continue) wrap instead of squeezing their labels
+  .azdigi-auth__card .flex-row:has(> button),
+  .azdigi-auth__card .flex-row:has(> div > button) {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .azdigi-auth__card [data-testid$="-radio"] svg {
+    margin-bottom: 6px;
+  }
+}

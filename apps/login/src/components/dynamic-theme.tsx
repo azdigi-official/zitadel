@@ -7,6 +7,7 @@ const AZDIGI_LOGO = `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/azdigi/logo.png`
 import { BrandingSettings } from "@zitadel/proto/zitadel/settings/v2/branding_settings_pb";
 import React, { ReactNode, Children } from "react";
 import { ThemeWrapper } from "./theme-wrapper";
+import { AuthFrame } from "@/components/azdigi/auth-frame";
 import { Card } from "./card";
 import { useResponsiveLayout } from "@/lib/theme-hooks";
 
@@ -38,6 +39,17 @@ export function DynamicTheme({
     }
     return children;
   }, [children, isSideBySide]);
+
+  // AZDIGI: every page uses the AntiWHMCS two-card frame (components/azdigi/auth-frame.tsx, #48); the stock layouts
+  // below stay untouched to keep upstream merges small, but are not reached
+  const azdigiFrame = true;
+  if (azdigiFrame) {
+    return (
+      <ThemeWrapper branding={branding}>
+        <AuthFrame branding={branding}>{actualChildren}</AuthFrame>
+      </ThemeWrapper>
+    );
+  }
 
   return (
     <ThemeWrapper branding={branding}>

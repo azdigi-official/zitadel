@@ -504,5 +504,55 @@
       "eligibility_unavailable": "Hệ thống tạm thời không kiểm tra được quyền truy cập. Vui lòng thử lại sau ít phút.",
       "not_eligible": "Tài khoản của bạn không được phép truy cập hệ thống này."
     }
+  },
+  "azdigiFrame": {
+    "signin": {
+      "eyebrow": "Tài khoản AZDIGI",
+      "title": "Đăng nhập AZDIGI",
+      "description": "Một tài khoản để quản lý dịch vụ, hoá đơn và hỗ trợ kỹ thuật trên mọi ứng dụng AZDIGI.",
+      "highlight1": "Mã đăng nhập một lần gửi qua email hoặc Zalo",
+      "highlight2": "Mã chỉ dùng được một lần và hết hạn sau vài phút",
+      "highlight3": "AZDIGI không bao giờ hỏi mã của bạn qua điện thoại hay chat"
+    },
+    "register": {
+      "eyebrow": "Đăng ký tài khoản",
+      "title": "Tạo tài khoản AZDIGI",
+      "description": "Đăng ký một lần để dùng mọi dịch vụ AZDIGI với cùng một tài khoản.",
+      "highlight1": "Chỉ cần email, không bắt buộc mật khẩu",
+      "highlight2": "Xác minh email bằng mã gửi tới hộp thư",
+      "highlight3": "Một tài khoản cho mọi dịch vụ AZDIGI"
+    },
+    "setup": {
+      "eyebrow": "Bảo mật tài khoản",
+      "title": "Thiết lập bảo mật",
+      "description": "Thêm phương thức xác thực để bảo vệ tài khoản AZDIGI của bạn.",
+      "highlight1": "Passkey: đăng nhập bằng vân tay, khuôn mặt hoặc khoá bảo mật",
+      "highlight2": "Ứng dụng xác thực tạo mã cho lớp bảo vệ thứ hai"
+    },
+    "done": {
+      "eyebrow": "Tài khoản AZDIGI",
+      "title": "Hoàn tất",
+      "description": "Bạn có thể quay lại ứng dụng đang dùng."
+    },
+    "denied": {
+      "eyebrow": "Tài khoản AZDIGI",
+      "title": "Chưa thể truy cập",
+      "description": "Ứng dụng bạn đang mở chưa cho phép tài khoản này. Xem lý do và cách xử lý bên cạnh."
+    },
+    "signout": {
+      "eyebrow": "Tài khoản AZDIGI",
+      "title": "Đăng xuất",
+      "description": "Chọn tài khoản bạn muốn đăng xuất trên trình duyệt này."
+    },
+    "verify": {
+      "eyebrow": "Tài khoản AZDIGI",
+      "title": "Xác minh email",
+      "description": "Nhập mã được gửi tới hộp thư để xác minh địa chỉ email của bạn."
+    },
+    "password": {
+      "eyebrow": "Bảo mật tài khoản",
+      "title": "Mật khẩu tài khoản",
+      "description": "Đặt mật khẩu để đăng nhập khi bạn không dùng mã một lần."
+    }
   }
 }

@@ -1,4 +1,6 @@
 import "@/styles/globals.scss";
+// AZDIGI design system (#48), after globals so it wins on equal specificity
+import "@/styles/azdigi.scss";
 
 import { FooterLinks } from "@/components/azdigi/footer-links";
 import { BackgroundWrapper } from "@/components/background-wrapper";
@@ -7,15 +9,15 @@ import { LanguageSwitcher } from "@/components/language-switcher";
 import { Skeleton } from "@/components/skeleton";
 import { ThemeProvider } from "@/components/theme-provider";
 import * as Tooltip from "@radix-ui/react-tooltip";
-import { Lato } from "next/font/google";
+import { Be_Vietnam_Pro } from "next/font/google";
 import React, { Suspense } from "react";
-import ThemeSwitch from "@/components/theme-switch";
 import type { Metadata } from "next";
 import { getLocale, getTranslations } from "next-intl/server";
 
-const lato = Lato({
-  weight: ["400", "700", "900"],
-  subsets: ["latin"],
+// AZDIGI: the AntiWHMCS typeface (#48); next/font downloads it at build time and serves it from the login (CSP font-src 'self')
+const beVietnamPro = Be_Vietnam_Pro({
+  weight: ["400", "500", "600", "700", "800", "900"],
+  subsets: ["latin", "vietnamese"],
 });
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -27,7 +29,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const locale = await getLocale();
 
   return (
-    <html lang={locale} className={`${lato.className}`} suppressHydrationWarning>
+    <html lang={locale} className={`${beVietnamPro.className}`} suppressHydrationWarning>
       <head />
       <body>
         <ThemeProvider>
@@ -35,28 +37,25 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             <Suspense
               fallback={
                 <BackgroundWrapper
-                  className={`relative flex min-h-screen flex-col justify-center bg-background-light-600 dark:bg-background-dark-600`}
+                  className={`relative flex min-h-screen flex-col justify-center azdigi-page`}
                 >
                   <div className="relative mx-auto w-full max-w-[440px] py-8">
                     <Skeleton>
                       <div className="h-40"></div>
                     </Skeleton>
-                    <div className="flex flex-row items-center justify-end space-x-4 py-4">
-                      <ThemeSwitch />
-                    </div>
                   </div>
                 </BackgroundWrapper>
               }
             >
               <LanguageProvider>
                 <BackgroundWrapper
-                  className={`relative flex min-h-screen flex-col justify-center bg-background-light-600 dark:bg-background-dark-600`}
+                  className={`relative flex min-h-screen flex-col justify-center azdigi-page`}
                 >
-                  <div className="relative mx-auto w-full max-w-[1100px] py-8">
+                  <div className="relative mx-auto w-full max-w-[1200px] py-6">
                     <div>{children}</div>
-                    <div className="flex flex-row items-center justify-end space-x-4 py-4 px-4 md:px-8 max-w-[440px] mx-auto md:max-w-full">
+                    {/* AZDIGI: light only, no theme switch (#48) */}
+                    <div className="flex flex-row items-center justify-end space-x-4 py-2 px-4 md:px-6">
                       <LanguageSwitcher />
-                      <ThemeSwitch />
                     </div>
                     <FooterLinks />
                   </div>

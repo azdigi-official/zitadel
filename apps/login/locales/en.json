@@ -504,5 +504,55 @@
       "eligibility_unavailable": "The system cannot check your access right now. Please try again in a few minutes.",
       "not_eligible": "Your account is not allowed to access this system."
     }
+  },
+  "azdigiFrame": {
+    "signin": {
+      "eyebrow": "AZDIGI account",
+      "title": "Sign in to AZDIGI",
+      "description": "One account to manage your services, invoices and technical support across every AZDIGI application.",
+      "highlight1": "One-time sign-in codes by email or Zalo",
+      "highlight2": "Codes work only once and expire after a few minutes",
+      "highlight3": "AZDIGI never asks for your code by phone or chat"
+    },
+    "register": {
+      "eyebrow": "Create an account",
+      "title": "Create your AZDIGI account",
+      "description": "Sign up once and use every AZDIGI service with the same account.",
+      "highlight1": "Just an email address — no password required",
+      "highlight2": "Verify your email with a code sent to your inbox",
+      "highlight3": "One account for every AZDIGI service"
+    },
+    "setup": {
+      "eyebrow": "Account security",
+      "title": "Set up security",
+      "description": "Add a sign-in method to protect your AZDIGI account.",
+      "highlight1": "Passkey: sign in with your fingerprint, face or security key",
+      "highlight2": "An authenticator app adds a second layer of protection"
+    },
+    "done": {
+      "eyebrow": "AZDIGI account",
+      "title": "All done",
+      "description": "You can return to the application you were using."
+    },
+    "denied": {
+      "eyebrow": "AZDIGI account",
+      "title": "Access not available",
+      "description": "The application you opened does not allow this account yet. See the reason and what to do next."
+    },
+    "signout": {
+      "eyebrow": "AZDIGI account",
+      "title": "Sign out",
+      "description": "Choose the account you want to sign out of on this browser."
+    },
+    "verify": {
+      "eyebrow": "AZDIGI account",
+      "title": "Verify your email",
+      "description": "Enter the code sent to your inbox to verify your email address."
+    },
+    "password": {
+      "eyebrow": "Account security",
+      "title": "Account password",
+      "description": "Set a password to sign in when you are not using a one-time code."
+    }
   }
 }
