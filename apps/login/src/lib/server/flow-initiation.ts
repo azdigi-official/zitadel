@@ -199,7 +199,9 @@ export async function handleOIDCFlowInitiation(params: FlowInitiationParams): Pr
         try {
           let command: SendLoginnameCommand = {
             loginName: authRequest.loginHint,
-            requestId: authRequest.id,
+            // azdigi: with the oidc_ prefix, as everywhere else here; without it the next steps do not know this is an
+            // OIDC request and stop at /signedin instead of returning the code to the application
+            requestId: `oidc_${authRequest.id}`,
           };
 
           if (organization) {
