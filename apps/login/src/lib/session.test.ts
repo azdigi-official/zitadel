@@ -3,6 +3,7 @@
  * organisation's FRESH login settings and the OTP-first allow-list; the user's own auth methods no longer matter.
  * The policy matrix itself lives in lib/azdigi/policy.test.ts.
  */
+import { AuthenticationMethodType } from "@zitadel/proto/zitadel/user/v2/user_service_pb";
 import { SecondFactorType } from "@zitadel/proto/zitadel/settings/v2/login_settings_pb";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import * as orgLookup from "./azdigi/org-lookup";
@@ -102,6 +103,15 @@ describe("isSessionValid", () => {
   test("checkSessionPolicy exposes the next step for the caller", async () => {
     expect(await checkSessionPolicy({ serviceConfig, session: session({}) })).toEqual({ ok: false, reason: "no-first-factor", next: "otpEmail" });
     vi.mocked(zitadelModule.getLoginSettings).mockResolvedValue(internal);
+    // no second factor registered (e.g. removed by an administrator): set one up
+    expect(await checkSessionPolicy({ serviceConfig, session: session({ password: { verifiedAt: ts(-5) } }) })).toEqual({
+      ok: false,
+      reason: "second-factor-missing",
+      next: "mfaSetup",
+    });
+    vi.mocked(zitadelModule.listAuthenticationMethodTypes).mockResolvedValueOnce({
+      authMethodTypes: [AuthenticationMethodType.PASSWORD, AuthenticationMethodType.TOTP],
+    } as any);
     expect(await checkSessionPolicy({ serviceConfig, session: session({ password: { verifiedAt: ts(-5) } }) })).toEqual({
       ok: false,
       reason: "second-factor-missing",

@@ -100,6 +100,9 @@ describe("guarded token issuance", () => {
       "/otp/email?loginName=a%40b.c&organization=100&requestId=oidc_1",
     );
     expect(redirectForVerdict({ ok: false, reason: "second-factor-missing", next: "mfa" }, s)).toBe("/mfa?loginName=a%40b.c&organization=100");
+    expect(redirectForVerdict({ ok: false, reason: "second-factor-missing", next: "mfaSetup" }, { ...s, id: "s1" }, "oidc_1")).toBe(
+      "/mfa/set?loginName=a%40b.c&organization=100&requestId=oidc_1&force=true&checkAfter=true&sessionId=s1",
+    );
     expect(redirectForVerdict({ ok: false, reason: "no-user", next: "loginname" }, undefined)).toBe("/loginname?");
     expect(isPolicyRejected(new PolicyRejectedError({ ok: false, reason: "expired", next: "loginname" }, undefined))).toBe(true);
     expect(isPolicyRejected(new Error("x"))).toBe(false);

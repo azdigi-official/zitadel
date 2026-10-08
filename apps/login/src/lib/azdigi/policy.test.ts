@@ -118,12 +118,16 @@ describe("assertSessionSatisfiesPolicy details", () => {
     });
   });
 
-  test("password without a second factor in a forceMfa org points to /mfa", () => {
-    expect(assertSessionSatisfiesPolicy({ session: session("user+password"), loginSettings: internal, otpFirstOrg: false, registeredMethods: [] })).toEqual({
-      ok: false,
-      reason: "second-factor-missing",
-      next: "mfa",
-    });
+  test("password without a second factor in a forceMfa org: verify a registered one, or set one up when none is left", () => {
+    const verdict = (registeredMethods: M[] | undefined) =>
+      assertSessionSatisfiesPolicy({ session: session("user+password"), loginSettings: internal, otpFirstOrg: false, registeredMethods });
+    expect(verdict([M.PASSWORD, M.TOTP])).toEqual({ ok: false, reason: "second-factor-missing", next: "mfa" });
+    expect(verdict([M.PASSWORD, M.U2F])).toEqual({ ok: false, reason: "second-factor-missing", next: "mfa" });
+    // TOTP removed by an administrator: an empty chooser would leave the user stuck
+    expect(verdict([M.PASSWORD])).toEqual({ ok: false, reason: "second-factor-missing", next: "mfaSetup" });
+    expect(verdict([])).toEqual({ ok: false, reason: "second-factor-missing", next: "mfaSetup" });
+    // methods unreadable: the chooser, as before
+    expect(verdict(undefined)).toEqual({ ok: false, reason: "second-factor-missing", next: "mfa" });
   });
 
   test("an allow-listed org still refuses otpEmail when its own policy does not list OTP_EMAIL", () => {

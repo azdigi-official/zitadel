@@ -168,6 +168,14 @@ export function redirectForVerdict(
       return loginName ? `/otp/email?${params}` : `/loginname?${params}`;
     case "mfa":
       return loginName ? `/mfa?${params}` : `/loginname?${params}`;
+    case "mfaSetup": {
+      if (!loginName) return `/loginname?${params}`;
+      // the same parameters checkMFAFactors uses for a forced setup
+      params.append("force", "true");
+      params.append("checkAfter", "true");
+      if (session?.id) params.append("sessionId", session.id);
+      return `/mfa/set?${params}`;
+    }
     case "passkey":
       return loginName ? `/passkey?${params}` : `/loginname?${params}`;
     default:

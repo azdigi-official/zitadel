@@ -20,7 +20,7 @@ export type RejectReason =
   | "org-mismatch";
 
 /** Where to send the user when a verdict rejects the session. */
-export type NextStep = "loginname" | "password" | "otpEmail" | "mfa" | "passkey";
+export type NextStep = "loginname" | "password" | "otpEmail" | "mfa" | "mfaSetup" | "passkey";
 
 /** `organization`: where to sign in instead (org-mismatch: the organisation the application asked for). */
 export type PolicyVerdict = { ok: true } | { ok: false; reason: RejectReason; next: NextStep; organization?: string };
@@ -104,6 +104,13 @@ function strongRegistered(methods: AuthenticationMethodType[]): { mfa: boolean; 
   };
 }
 
+/** Second factors the /mfa chooser can offer (the same set checkMFAFactors considers). */
+function hasSecondFactorRegistered(methods: AuthenticationMethodType[]): boolean {
+  return [AuthenticationMethodType.TOTP, AuthenticationMethodType.U2F, AuthenticationMethodType.OTP_EMAIL, AuthenticationMethodType.OTP_SMS].some(
+    (m) => methods.includes(m),
+  );
+}
+
 function hasStrongVerified(factors: Set<FactorKind>): boolean {
   return factors.has("totp") || factors.has("u2f") || factors.has("passkey");
 }
@@ -128,7 +135,9 @@ export function assertSessionSatisfiesPolicy({ session, loginSettings, otpFirstO
       return { ok: false, reason: "no-first-factor", next: "password" };
     }
     if (!secondFactorSatisfied(factors, loginSettings)) {
-      return { ok: false, reason: "second-factor-missing", next: "mfa" };
+      // nothing registered (never set up, or removed by an administrator): set one up instead of an empty chooser
+      const next = registeredMethods && !hasSecondFactorRegistered(registeredMethods) ? "mfaSetup" : "mfa";
+      return { ok: false, reason: "second-factor-missing", next };
     }
     return { ok: true };
   }
