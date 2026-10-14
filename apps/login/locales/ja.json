@@ -37,6 +37,7 @@
       "loginName": "必須項目です"
     },
     "errors": {
+      "whitespace": "ログイン名またはメールアドレスに空白を含めることはできません。",
       "internalError": "内部エラーが発生しました",
       "couldNotGetLoginSettings": "ログイン設定を取得できませんでした",
       "couldNotSearchUsers": "ユーザーを検索できませんでした",

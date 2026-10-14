@@ -28,6 +28,7 @@ export function LDAPUsernamePasswordForm({ idpId, link }: Props) {
   });
 
   const t = useTranslations("ldap");
+  const tLoginname = useTranslations("loginname");
 
   const [error, setError] = useState<string>("");
 
@@ -41,7 +42,7 @@ export function LDAPUsernamePasswordForm({ idpId, link }: Props) {
 
     const response = await createNewSessionForLDAP({
       idpId: idpId,
-      username: values.loginName,
+      username: values.loginName.trim(),
       password: values.password,
       link: link,
     })
@@ -68,8 +69,13 @@ export function LDAPUsernamePasswordForm({ idpId, link }: Props) {
       <TextInput
         type="text"
         autoComplete="username"
-        {...register("loginName", { required: t("required.username") })}
+        {...register("loginName", {
+          required: t("required.username"),
+          setValueAs: (value: string) => value.trim(),
+          validate: (value) => !/\s/.test(value.trim()) || tLoginname("errors.whitespace"),
+        })}
         label={t("labels.username")}
+        error={formState.errors.loginName?.message}
         data-testid="username-text-input"
       />
 

@@ -37,6 +37,7 @@
       "loginName": "This field is required"
     },
     "errors": {
+      "whitespace": "Login name or email must not contain whitespace.",
       "internalError": "An internal error occurred",
       "couldNotGetLoginSettings": "Could not get login settings",
       "couldNotSearchUsers": "Could not search users",

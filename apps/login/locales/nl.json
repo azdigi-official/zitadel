@@ -37,6 +37,7 @@
       "loginName": "Dit veld is verplicht"
     },
     "errors": {
+      "whitespace": "De loginnaam of het e-mailadres mag geen witruimte bevatten.",
       "internalError": "Er is een interne fout opgetreden",
       "couldNotGetLoginSettings": "Kon aanmeldinstellingen niet ophalen",
       "couldNotSearchUsers": "Kon gebruikers niet zoeken",

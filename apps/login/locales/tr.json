@@ -37,6 +37,7 @@
       "loginName": "Bu alan zorunludur"
     },
     "errors": {
+      "whitespace": "Giriş adı veya e-posta adresi boşluk içeremez.",
       "internalError": "Bir iç hata oluştu",
       "couldNotGetLoginSettings": "Giriş ayarları alınamadı",
       "couldNotSearchUsers": "Kullanıcılar aranamadı",

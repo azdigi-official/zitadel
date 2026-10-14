@@ -36,10 +36,20 @@ export type RegisterUserResponse = {
   sessionId: string;
   factors: Factors | undefined;
 };
+/** AZDIGI: an email is the login name; a pasted address keeps no outer whitespace and may hold none inside. */
+async function emailWhitespaceError(email: string): Promise<string | undefined> {
+  if (!/\s/.test(email)) return undefined;
+  const t = await getTranslations("loginname");
+  return t("errors.whitespace");
+}
+
 export async function registerUser(
   command: RegisterUserCommand,
 ): Promise<{ error: string } | { redirect: string } | { samlData: { url: string; fields: Record<string, string> } }> {
   const t = await getTranslations("register");
+  command = { ...command, email: command.email.trim() };
+  const whitespace = await emailWhitespaceError(command.email);
+  if (whitespace) return { error: whitespace };
   const _headers = await headers();
   const { serviceConfig } = getServiceConfig(_headers);
 
@@ -201,6 +211,9 @@ export async function registerUserAndLinkToIDP(
   command: RegisterUserAndLinkToIDPommand,
 ): Promise<{ error: string } | { redirect: string } | { samlData: { url: string; fields: Record<string, string> } }> {
   const t = await getTranslations("register");
+  command = { ...command, email: command.email.trim() };
+  const whitespace = await emailWhitespaceError(command.email);
+  if (whitespace) return { error: whitespace };
 
   const _headers = await headers();
   const { serviceConfig } = getServiceConfig(_headers);

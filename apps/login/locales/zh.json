@@ -37,6 +37,7 @@
       "loginName": "此字段为必填项"
     },
     "errors": {
+      "whitespace": "登录名或电子邮件地址不能包含空白字符。",
       "internalError": "发生内部错误",
       "couldNotGetLoginSettings": "无法获取登录设置",
       "couldNotSearchUsers": "无法搜索用户",

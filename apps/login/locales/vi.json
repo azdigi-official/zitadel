@@ -37,6 +37,7 @@
       "loginName": "Trường này là bắt buộc"
     },
     "errors": {
+      "whitespace": "Tên đăng nhập hoặc email không được chứa khoảng trắng.",
       "internalError": "Đã xảy ra lỗi nội bộ",
       "couldNotGetLoginSettings": "Không lấy được cài đặt đăng nhập",
       "couldNotSearchUsers": "Không tìm được người dùng",

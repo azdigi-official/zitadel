@@ -47,10 +47,16 @@ export async function sendLoginname(command: SendLoginnameCommand) {
 }
 
 async function sendLoginnameNow(command: SendLoginnameCommand) {
+  const t = await getTranslations("loginname");
+
+  // AZDIGI: reject whitespace before lookup so invalid input cannot enter registration or decoy paths.
+  command = { ...command, loginName: command.loginName.trim() };
+  if (/\s/.test(command.loginName)) {
+    return { error: t("errors.whitespace") };
+  }
+
   const _headers = await headers();
   const { serviceConfig } = getServiceConfig(_headers);
-
-  const t = await getTranslations("loginname");
 
   const loginSettingsByContext = await getLoginSettings({ serviceConfig, organization: command.organization });
 

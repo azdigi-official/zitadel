@@ -37,6 +37,7 @@
       "loginName": "Dieses Feld ist erforderlich"
     },
     "errors": {
+      "whitespace": "Loginname oder E-Mail dürfen keine Leerzeichen enthalten.",
       "internalError": "Ein interner Fehler ist aufgetreten",
       "couldNotGetLoginSettings": "Anmeldeeinstellungen konnten nicht abgerufen werden",
       "couldNotSearchUsers": "Benutzer konnten nicht durchsucht werden",

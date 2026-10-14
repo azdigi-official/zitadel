@@ -37,6 +37,7 @@
       "loginName": "Este campo es obligatorio"
     },
     "errors": {
+      "whitespace": "El nombre de usuario o correo electrónico no debe contener espacios en blanco.",
       "internalError": "Se produjo un error interno",
       "couldNotGetLoginSettings": "No se pudieron obtener los ajustes de inicio de sesión",
       "couldNotSearchUsers": "No se pudieron buscar usuarios",

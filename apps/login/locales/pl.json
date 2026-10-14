@@ -37,6 +37,7 @@
       "loginName": "To pole jest wymagane"
     },
     "errors": {
+      "whitespace": "Nazwa logowania lub adres e-mail nie może zawierać białych znaków.",
       "internalError": "Wystąpił błąd wewnętrzny",
       "couldNotGetLoginSettings": "Nie udało się pobrać ustawień logowania",
       "couldNotSearchUsers": "Nie udało się wyszukać użytkowników",

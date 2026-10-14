@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 import * as orgLookup from "../azdigi/org-lookup";
 import * as zitadel from "../zitadel";
 import * as cookie from "./cookie";
-import { registerUser } from "./register";
+import { registerUser, registerUserAndLinkToIDP } from "./register";
 
 vi.mock("next/headers", () => ({ headers: vi.fn(async () => ({ get: () => null })), cookies: vi.fn(async () => ({ set: vi.fn() })) }));
 vi.mock("next-intl/server", () => ({ getTranslations: vi.fn(async () => (key: string) => key) }));
@@ -52,6 +52,20 @@ describe("registerUser (AZDIGI)", () => {
     expect(await registerUser({ ...base, method: "otp" })).toEqual({ error: "disabled.description" });
     vi.mocked(orgLookup.resolveOrgIdByName).mockResolvedValue(undefined);
     expect(await registerUser({ ...base, method: "otp" })).toEqual({ error: "disabled.description" });
+    expect(zitadel.addHumanUser).not.toHaveBeenCalled();
+  });
+
+  test("a pasted email loses its outer whitespace before the account is created", async () => {
+    await registerUser({ ...base, email: "  new@example.test\t", method: "otp" });
+    expect(zitadel.addHumanUser).toHaveBeenCalledWith(expect.objectContaining({ email: "new@example.test" }));
+  });
+
+  test.each(["new @example.test", "new@exa mple.test", "new\u00a0@example.test"])("refuses an email with inner whitespace: %j", async (email) => {
+    expect(await registerUser({ ...base, email, method: "otp" })).toEqual({ error: "errors.whitespace" });
+    expect(await registerUserAndLinkToIDP({ ...base, email, idpId: "i", idpUserId: "u", idpUserName: "n" } as any)).toEqual({
+      error: "errors.whitespace",
+    });
+    expect(orgLookup.resolveOrgIdByName).not.toHaveBeenCalled();
     expect(zitadel.addHumanUser).not.toHaveBeenCalled();
   });
 });

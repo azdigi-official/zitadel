@@ -37,6 +37,7 @@
       "loginName": "Ce champ est requis"
     },
     "errors": {
+      "whitespace": "Le nom de connexion ou l’adresse e-mail ne doit pas contenir d’espaces.",
       "internalError": "Une erreur interne s'est produite",
       "couldNotGetLoginSettings": "Impossible d'obtenir les paramètres de connexion",
       "couldNotSearchUsers": "Impossible de rechercher des utilisateurs",

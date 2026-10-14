@@ -61,6 +61,7 @@ export function RegisterForm({
   });
 
   const t = useTranslations("register");
+  const tLoginname = useTranslations("loginname");
 
   const [loading, setLoading] = useState<boolean>(false);
   const [selected, setSelected] = useState<AuthenticationMethod>(otpFirst ? AuthenticationMethod.Otp : methods[0]);
@@ -73,7 +74,7 @@ export function RegisterForm({
     setLoading(true);
     try {
       const response = await registerUser({
-        email: values.email,
+        email: values.email.trim(),
         firstName: values.firstname,
         lastName: values.lastname,
         organization: organization,
@@ -150,7 +151,11 @@ export function RegisterForm({
               type="email"
               autoComplete="email"
               required
-              {...register("email", { required: t("required.email") })}
+              {...register("email", {
+                required: t("required.email"),
+                setValueAs: (value: string) => value.trim(),
+                validate: (value) => !/\s/.test(value.trim()) || tLoginname("errors.whitespace"),
+              })}
               label={t("labels.email")}
               error={errors.email?.message as string}
               data-testid="email-text-input"

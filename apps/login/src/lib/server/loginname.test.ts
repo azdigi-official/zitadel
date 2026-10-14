@@ -133,6 +133,34 @@ describe("sendLoginname", () => {
     vi.restoreAllMocks();
   });
 
+  describe("Login name whitespace", () => {
+    test("trims outer whitespace before searching without mutating the command", async () => {
+      mockGetLoginSettings.mockResolvedValue({ allowLocalAuthentication: true });
+      mockSearchUsers.mockResolvedValue({ error: "Search stopped" });
+      const command = { loginName: " a@b.com " };
+
+      expect(await sendLoginname(command)).toEqual({ error: "Search stopped" });
+      expect(mockSearchUsers).toHaveBeenCalledWith(expect.objectContaining({ searchValue: "a@b.com" }));
+      expect(command.loginName).toBe(" a@b.com ");
+    });
+
+    test.each(["a @b.com", "a\tb.com", "a\nb.com", "a\u00a0@b.com"])(
+      "refuses inner whitespace before lookup: %j",
+      async (loginName) => {
+        const { decoyOtpRedirect } = await import("../azdigi/decoy");
+        vi.mocked(decoyOtpRedirect).mockClear();
+
+        expect(await sendLoginname({ loginName, ignoreUnknownUsernames: true })).toEqual({
+          error: "errors.whitespace",
+        });
+        expect(mockGetLoginSettings).not.toHaveBeenCalled();
+        expect(mockSearchUsers).not.toHaveBeenCalled();
+        expect(mockCreateSessionAndUpdateCookie).not.toHaveBeenCalled();
+        expect(decoyOtpRedirect).not.toHaveBeenCalled();
+      },
+    );
+  });
+
   describe("Error cases", () => {
     test("should return error when login settings cannot be retrieved", async () => {
       mockGetLoginSettings.mockResolvedValue(null);

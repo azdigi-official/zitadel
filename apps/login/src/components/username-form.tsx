@@ -60,7 +60,7 @@ export function UsernameForm({
 
     try {
       const res = await sendLoginname({
-        loginName: values.loginName,
+        loginName: values.loginName.trim(),
         organization,
         defaultOrganization,
         requestId,
@@ -101,8 +101,13 @@ export function UsernameForm({
           <TextInput
             type="text"
             autoComplete="username"
-            {...register("loginName", { required: t("required.loginName") })}
+            {...register("loginName", {
+              required: t("required.loginName"),
+              setValueAs: (value: string) => value.trim(),
+              validate: (value) => !/\s/.test(value.trim()) || t("errors.whitespace"),
+            })}
             label={inputLabel}
+            error={formState.errors.loginName?.message}
             data-testid="username-text-input"
             suffix={suffix}
           />

@@ -37,6 +37,7 @@
       "loginName": "هذا الحقل مطلوب"
     },
     "errors": {
+      "whitespace": "يجب ألا يحتوي اسم تسجيل الدخول أو البريد الإلكتروني على مسافات بيضاء.",
       "internalError": "حدث خطأ داخلي",
       "couldNotGetLoginSettings": "تعذر الحصول على إعدادات تسجيل الدخول",
       "couldNotSearchUsers": "تعذر البحث عن المستخدمين",
