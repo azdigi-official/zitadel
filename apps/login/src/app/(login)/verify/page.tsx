@@ -4,6 +4,7 @@ import { Translated } from "@/components/translated";
 import { UserAvatar } from "@/components/user-avatar";
 import { VerifyForm } from "@/components/verify-form";
 import { UNKNOWN_USER_ID } from "@/lib/constants";
+import { claimVerifyPageSend } from "@/lib/azdigi/rate-limit";
 import { getPublicHostWithProtocol } from "@/lib/server/host";
 import { sendEmailCode, sendInviteEmailCode } from "@/lib/server/verify";
 import { getServiceConfig } from "@/lib/service-url";
@@ -44,6 +45,10 @@ export default async function Page(props: { searchParams: Promise<any> }) {
   const autoSubmitCode = process.env.NEXT_PUBLIC_AUTO_SUBMIT_CODE === "true";
 
   async function sendEmail(userId: string) {
+    // AZDIGI: at most one automatic send per user and minute; a re-render must not void the code just mailed
+    if (!claimVerifyPageSend(userId, invite === "true" ? "invite" : "email")) {
+      return;
+    }
     const hostWithProtocol = await getPublicHostWithProtocol(_headers);
 
     if (invite === "true") {

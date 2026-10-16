@@ -67,11 +67,13 @@ export class SlidingWindowLimiter {
 }
 
 const TEN_MINUTES = 10 * 60 * 1000;
+const ONE_MINUTE = 60 * 1000;
 
 type Limiters = {
   otpSendPerLogin: SlidingWindowLimiter;
   otpSendPerIp: SlidingWindowLimiter;
   otpVerifyPerUser: SlidingWindowLimiter;
+  verifyPageSend: SlidingWindowLimiter;
 };
 
 const store = globalThis as typeof globalThis & { __azdigiLimiters?: Limiters };
@@ -88,10 +90,21 @@ export const limiters: Limiters = (store.__azdigiLimiters ??= {
   // code attempts: 2 per user in 10 minutes — Zitadel v4.11 locks the user on the 3rd wrong code (observed 04/10/2026
   // with maxOtpAttempts=5) and never unlocks by itself, so the soft limit must sit below that
   otpVerifyPerUser: new SlidingWindowLimiter(limitFromEnv("AZDIGI_OTP_VERIFY_PER_USER", 2), TEN_MINUTES),
+  verifyPageSend: new SlidingWindowLimiter(1, ONE_MINUTE),
 });
+
+/**
+ * The /verify page mails a code while it renders (`send=true`), and every new code voids the one before: a second render
+ * (router refresh, reload, back) sent a second mail and left the first code invalid (16/10/2026, two InviteUser mails in
+ * the same second). One automatic send per user and kind per minute; the "resend" button is a separate action.
+ */
+export function claimVerifyPageSend(userId: string, kind: "invite" | "email", now = Date.now()): boolean {
+  return limiters.verifyPageSend.hit(`${kind}:${userId}`, now).allowed;
+}
 
 export function resetLimiters() {
   limiters.otpSendPerLogin.reset();
   limiters.otpSendPerIp.reset();
   limiters.otpVerifyPerUser.reset();
+  limiters.verifyPageSend.reset();
 }

@@ -1,5 +1,16 @@
 import { describe, expect, test } from "vitest";
-import { SlidingWindowLimiter } from "./rate-limit";
+import { claimVerifyPageSend, resetLimiters, SlidingWindowLimiter } from "./rate-limit";
+
+describe("claimVerifyPageSend", () => {
+  test("one automatic send per user and kind per minute", () => {
+    resetLimiters();
+    expect(claimVerifyPageSend("u1", "invite", 0)).toBe(true);
+    expect(claimVerifyPageSend("u1", "invite", 500)).toBe(false);
+    expect(claimVerifyPageSend("u1", "email", 500)).toBe(true);
+    expect(claimVerifyPageSend("u2", "invite", 500)).toBe(true);
+    expect(claimVerifyPageSend("u1", "invite", 60_000)).toBe(true);
+  });
+});
 
 describe("SlidingWindowLimiter", () => {
   test("allows up to the limit inside the window and refuses afterwards with a retry hint", () => {
