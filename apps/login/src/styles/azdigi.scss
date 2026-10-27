@@ -1,22 +1,31 @@
-// AZDIGI design system for the login (#48): the AntiWHMCS "soft-clay" sign-in look
-// (anti_whmcs frontend/src/shared/theme/soft-clay-tokens.ts, enterprise-theme.ts, client/auth/components/guest-auth-frame.tsx).
-// Everything is scoped under `.azdigi-auth` (components/azdigi/auth-frame.tsx) so upstream components stay untouched.
-
+// AZDIGI Portal shell. Authentication controls retain their upstream behavior.
 :root {
-  --azdigi-page: #f1f5f9;
-  --azdigi-navy: #0f172a;
+  --azdigi-page: #f8fafc;
+  --azdigi-surface: #ffffff;
   --azdigi-text: #0f172a;
-  --azdigi-text-secondary: #475569;
+  --azdigi-text-secondary: #526178;
   --azdigi-primary: #2563eb;
   --azdigi-primary-dark: #1d4ed8;
   --azdigi-error: #dc2626;
   --azdigi-input-border: #d8e0ec;
-  --azdigi-input-border-hover: #c5d2e4;
+  --azdigi-input-border-hover: #b5c3d7;
   --azdigi-focus-ring: 0 0 0 3px rgba(37, 99, 235, 0.28);
   --azdigi-error-ring: 0 0 0 3px rgba(220, 38, 38, 0.12);
-  --azdigi-shadow-button: 0 6px 14px -8px rgba(37, 99, 235, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  --azdigi-shadow-button: 0 2px 4px rgba(37, 99, 235, 0.08);
   --azdigi-radius-input: 10px;
-  --azdigi-radius-button: 12px;
+  --azdigi-radius-button: 10px;
+  --azdigi-radius-panel: 28px;
+  --azdigi-radius-service: 18px;
+  --azdigi-space-1: 8px;
+  --azdigi-space-2: 16px;
+  --azdigi-space-3: 24px;
+  --azdigi-space-4: 32px;
+  --azdigi-space-5: 48px;
+  --azdigi-space-6: 64px;
+  --azdigi-panel-height: 680px;
+  --azdigi-connection: #d9e1ec;
+  --azdigi-service-shadow: 0 2px 4px rgba(15, 23, 42, 0.06);
+  --azdigi-portal-shadow: 0 8px 20px rgba(15, 23, 42, 0.12);
 }
 
 body,
@@ -25,188 +34,323 @@ body,
   color: var(--azdigi-text);
 }
 
-.azdigi-auth {
+.azdigi-shell {
   width: 100%;
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 16px;
-
-  @media (min-width: 768px) {
-    padding: 24px;
-  }
+  max-width: 1536px;
+  margin: auto;
+  padding: var(--azdigi-space-5) var(--azdigi-space-4);
 }
 
 .azdigi-auth__grid {
   display: grid;
-  gap: 16px;
-
-  @media (min-width: 900px) {
-    grid-template-columns: 5fr 7fr;
-    gap: 24px;
-    align-items: start;
-  }
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--azdigi-space-2);
+  align-items: stretch;
 }
 
-// Brand card (GuestAuthFrame left column)
-.azdigi-auth__brand {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 20px;
-  border-radius: 11px;
-  background: var(--azdigi-navy);
-  color: #e2e8f0;
-  border: 1px solid rgba(148, 163, 184, 0.16);
-  box-shadow: 0 16px 36px rgba(15, 23, 42, 0.14);
+.azdigi-auth__main {
+  min-height: var(--azdigi-panel-height);
+  background: var(--azdigi-surface);
+  border-radius: var(--azdigi-radius-panel);
+}
 
-  @media (min-width: 900px) {
-    gap: 18px;
-    padding: 28px;
+.azdigi-auth__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--azdigi-space-2);
+  padding: var(--azdigi-space-4);
+
+  button {
+    min-height: 44px;
+    background: transparent;
+    color: var(--azdigi-text);
+    &:focus-visible {
+      outline: 2px solid var(--azdigi-primary);
+      outline-offset: 2px;
+    }
   }
 }
 
 .azdigi-auth__logo {
-  align-self: center;
-  display: inline-flex;
-  padding: 12px 20px;
-  border-radius: 20px;
-  background: #ffffff;
-
-  img {
-    display: block;
-    width: 152px;
-    max-width: 100%;
-    height: auto;
-    object-fit: contain;
-  }
-}
-
-.azdigi-auth__eyebrow {
-  margin: 0;
-  font-size: 0.75rem;
-  font-weight: 600;
-  line-height: 1.6;
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
-  color: #93c5fd;
-}
-
-.azdigi-auth__title {
-  margin: 0;
-  font-size: 1.75rem;
-  font-weight: 900;
-  line-height: 1.1;
-  color: #f8fafc;
-
-  @media (min-width: 900px) {
-    font-size: 3rem;
-    line-height: 1.05;
-  }
-}
-
-.azdigi-auth__description {
-  margin: 0;
-  max-width: 460px;
-  font-size: 1rem;
-  line-height: 1.6;
-  color: #cbd5e1;
-}
-
-.azdigi-auth__highlights {
-  margin: auto 0 0;
-  padding: 0;
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: 9px;
-
-  li {
-    padding: 10px 12px;
-    border-radius: 6px;
-    background: rgba(15, 23, 42, 0.24);
-    border: 1px solid rgba(148, 163, 184, 0.14);
-    color: #e2e8f0;
-    font-size: 0.95rem;
-    line-height: 1.5;
-  }
-}
-
-// Phones: the brand card is a strip (logo + title) above the form
-@media (max-width: 899px) {
-  .azdigi-auth__brand {
-    flex-direction: row;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 8px 14px;
-    padding: 14px 16px;
-  }
-  .azdigi-auth__logo {
-    align-self: auto;
-    padding: 8px 12px;
-    border-radius: 14px;
-
-    img {
-      width: 112px;
-    }
-  }
-  .azdigi-auth__eyebrow,
-  .azdigi-auth__description,
-  .azdigi-auth__highlights {
-    display: none;
-  }
-  .azdigi-auth__title {
-    font-size: 1.125rem;
-    font-weight: 800;
-  }
-}
-
-// Form card (LoginLauncherCard Paper)
-.azdigi-auth__main {
-  display: flex;
-  justify-content: flex-end;
+  display: block;
+  width: 180px;
+  height: auto;
+  object-fit: contain;
 }
 
 .azdigi-auth__card {
-  width: 100%;
-  max-width: 560px;
-  padding: 24px;
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.96);
-  border: 1px solid rgba(148, 163, 184, 0.22);
-  box-shadow: 0 26px 60px rgba(15, 23, 42, 0.12);
+  padding: var(--azdigi-space-4) var(--azdigi-space-5) var(--azdigi-space-6);
 
-  @media (min-width: 900px) {
-    padding: 32px;
-  }
-}
-
-.azdigi-auth__heading {
-  margin-bottom: 20px;
-  text-align: left;
-}
-
-// page titles (two-child pages put them in the heading, single-child pages inside the form)
-.azdigi-auth__card {
   h1 {
-    margin: 0 0 8px;
-    font-size: 2rem;
-    font-weight: 800;
-    line-height: 1.15;
-    letter-spacing: -0.02em;
+    margin: 0 0 var(--azdigi-space-1);
+    font-size: 1.75rem;
+    font-weight: 700;
+    line-height: 1.35;
+    letter-spacing: -0.025em;
     color: var(--azdigi-text);
     text-align: left;
-
-    @media (min-width: 900px) {
-      font-size: 2.5rem;
-    }
   }
 
   p {
     margin: 0;
-    font-size: 1rem;
-    line-height: 1.6;
+    font-size: 0.95rem;
+    line-height: 1.7;
     color: var(--azdigi-text-secondary);
     text-align: left;
+  }
+
+  .azdigi-auth__title {
+    margin-bottom: var(--azdigi-space-2);
+    font-size: clamp(1.5rem, 2.15vw, 2rem);
+    font-weight: 700;
+    letter-spacing: -0.035em;
+    line-height: 1.4;
+    color: var(--azdigi-text);
+    text-wrap: balance;
+  }
+}
+
+.azdigi-auth__intro {
+  margin-bottom: var(--azdigi-space-5);
+}
+.azdigi-auth__heading {
+  margin-bottom: var(--azdigi-space-3);
+}
+
+.azdigi-auth__ecosystem {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  overflow: hidden;
+  isolation: isolate;
+  border-radius: var(--azdigi-radius-panel);
+  background: linear-gradient(135deg, #f0f3f9, #e8eef7);
+  min-height: var(--azdigi-panel-height);
+  padding: var(--azdigi-space-3);
+}
+
+.azdigi-auth__orbit {
+  position: absolute;
+  z-index: -1;
+  width: 94%;
+  aspect-ratio: 1;
+  border: 2px solid rgba(255, 255, 255, 0.42);
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 70px rgba(255, 255, 255, 0.14);
+  &::before,
+  &::after {
+    content: "";
+    position: absolute;
+    inset: 12%;
+    border: 2px solid rgba(255, 255, 255, 0.45);
+    border-radius: 50%;
+  }
+  &::after {
+    inset: 25%;
+    background: rgba(255, 255, 255, 0.16);
+  }
+}
+
+.azdigi-auth__diagram {
+  position: relative;
+  width: 100%;
+  max-width: 600px;
+  aspect-ratio: 600 / 480;
+}
+
+.azdigi-auth__connections {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  path {
+    stroke: var(--azdigi-connection);
+    stroke-width: 2;
+  }
+  circle {
+    stroke: var(--azdigi-primary);
+    stroke-width: 1.5;
+    fill: var(--azdigi-surface);
+  }
+}
+
+.azdigi-auth__service {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--azdigi-space-1);
+  width: 26%;
+  height: 25%;
+  border-radius: var(--azdigi-radius-service);
+  background: var(--azdigi-surface);
+  box-shadow: var(--azdigi-service-shadow);
+  color: var(--azdigi-text);
+  font-size: 0.95rem;
+  font-weight: 600;
+  svg {
+    width: 32px;
+    height: 32px;
+    color: var(--azdigi-primary);
+  }
+  img {
+    width: 80%;
+    height: auto;
+    object-fit: contain;
+  }
+  &--top-left {
+    left: 17%;
+    top: 16.667%;
+  }
+  &--top-right {
+    left: 83%;
+    top: 16.667%;
+  }
+  &--middle-left {
+    left: 13%;
+    top: 50%;
+  }
+  &--middle-right {
+    left: 87%;
+    top: 50%;
+  }
+  &--bottom-left {
+    left: 17%;
+    top: 83.333%;
+  }
+  &--bottom-right {
+    left: 83%;
+    top: 83.333%;
+  }
+  &--portal {
+    left: 50%;
+    top: 50%;
+    width: 30%;
+    height: 32%;
+    gap: var(--azdigi-space-2);
+    box-shadow: var(--azdigi-portal-shadow);
+    font-size: 1rem;
+  }
+}
+
+.azdigi-auth__caption {
+  position: absolute;
+  inset: auto var(--azdigi-space-3) var(--azdigi-space-4);
+  text-align: center;
+  color: var(--azdigi-text-secondary);
+  font-size: 0.85rem;
+  line-height: 1.6;
+}
+
+.azdigi-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--azdigi-space-2);
+  padding-top: var(--azdigi-space-3);
+  color: var(--azdigi-text-secondary);
+  font-size: 0.75rem;
+  line-height: 1.6;
+  p {
+    margin: 0;
+  }
+  a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+  }
+  a:focus-visible {
+    outline: 2px solid var(--azdigi-primary);
+    outline-offset: 2px;
+  }
+}
+.azdigi-footer__links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--azdigi-space-3);
+}
+
+@media (max-width: 1099px) {
+  .azdigi-auth__card {
+    padding-inline: var(--azdigi-space-4);
+  }
+  .azdigi-auth__header {
+    padding: var(--azdigi-space-3);
+  }
+  .azdigi-auth__logo {
+    width: 144px;
+  }
+  .azdigi-auth__service {
+    font-size: 0.85rem;
+  }
+  .azdigi-auth__service--portal {
+    font-size: 0.85rem;
+  }
+}
+
+@media (max-width: 899px) {
+  .azdigi-shell {
+    max-width: 680px;
+    padding: var(--azdigi-space-3) var(--azdigi-space-2);
+  }
+  .azdigi-auth__grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .azdigi-auth__main {
+    min-height: 0;
+  }
+  .azdigi-auth__card {
+    padding: var(--azdigi-space-3) var(--azdigi-space-3) var(--azdigi-space-4);
+  }
+  .azdigi-auth__intro {
+    margin-bottom: var(--azdigi-space-4);
+  }
+  .azdigi-auth__ecosystem {
+    min-height: 0;
+    padding: var(--azdigi-space-4) var(--azdigi-space-2) var(--azdigi-space-6);
+  }
+  .azdigi-auth__caption {
+    bottom: var(--azdigi-space-3);
+    font-size: 0.75rem;
+  }
+  .azdigi-auth__service {
+    border-radius: 12px;
+    font-size: 0.75rem;
+  }
+  .azdigi-auth__service svg {
+    width: 26px;
+    height: 26px;
+  }
+  .azdigi-auth__service--portal {
+    gap: var(--azdigi-space-1);
+    font-size: 0.75rem;
+  }
+  .azdigi-footer {
+    justify-content: center;
+    text-align: center;
+  }
+  .azdigi-footer__links {
+    justify-content: center;
+    gap: 0 var(--azdigi-space-2);
+  }
+}
+
+@media (max-width: 399px) {
+  .azdigi-auth__header {
+    padding: var(--azdigi-space-2);
+    gap: var(--azdigi-space-1);
+  }
+  .azdigi-auth__logo {
+    width: 128px;
+  }
+  .azdigi-auth__card {
+    padding-inline: var(--azdigi-space-2);
   }
 }
 
@@ -290,7 +434,7 @@ body,
     }
     &:disabled {
       background: #e2e8f0;
-      color: #64748b;
+      color: #475569;
       box-shadow: none;
     }
   }
@@ -386,5 +530,45 @@ body,
 
   .azdigi-auth__card [data-testid$="-radio"] svg {
     margin-bottom: 6px;
+  }
+}
+
+// The entry form keeps its actions, with Continue as the full-width primary action.
+.azdigi-auth__card .azdigi-username-form {
+  > .flex-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--azdigi-space-1);
+    > span {
+      display: none;
+    }
+    > button[type="submit"] {
+      grid-row: 1;
+      width: 100%;
+      min-height: 52px;
+    }
+    > button[type="button"] {
+      justify-self: center;
+      border-color: transparent;
+      background: transparent;
+    }
+  }
+  .azdigi-username-form__register {
+    text-align: center;
+    button {
+      min-height: 44px;
+      color: var(--azdigi-primary);
+    }
+    button:focus-visible {
+      outline: 2px solid var(--azdigi-primary);
+      outline-offset: 2px;
+    }
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .azdigi-auth *,
+  .azdigi-auth *::before,
+  .azdigi-auth *::after {
+    transition-duration: 0s !important;
   }
 }

@@ -507,6 +507,12 @@
     }
   },
   "azdigiFrame": {
+    "portal": {
+      "title": "Một tài khoản cho mọi dịch vụ AZDIGI",
+      "description": "Quản lý dịch vụ, thanh toán và hỗ trợ tại AZDIGI Portal.",
+      "ecosystem": "Hệ sinh thái dịch vụ AZDIGI",
+      "caption": "AZDIGI Portal — Trung tâm dịch vụ của bạn"
+    },
     "signin": {
       "eyebrow": "Tài khoản AZDIGI",
       "title": "Đăng nhập AZDIGI",

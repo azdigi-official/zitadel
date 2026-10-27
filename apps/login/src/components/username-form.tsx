@@ -1,19 +1,19 @@
 "use client";
 
-import { sendLoginname } from "@/lib/server/loginname";
 import { handleServerActionResponse } from "@/lib/client";
+import { sendLoginname } from "@/lib/server/loginname";
 import { LoginSettings } from "@zitadel/proto/zitadel/settings/v2/login_settings_pb";
+import { useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { Alert } from "./alert";
+import { AutoSubmitForm } from "./auto-submit-form";
 import { BackButton } from "./back-button";
 import { Button, ButtonVariants } from "./button";
 import { TextInput } from "./input";
 import { Spinner } from "./spinner";
 import { Translated } from "./translated";
-import { useTranslations } from "next-intl";
-import { AutoSubmitForm } from "./auto-submit-form";
 
 type Inputs = {
   loginName: string;
@@ -96,7 +96,7 @@ export function UsernameForm({
   return (
     <>
       {samlData && <AutoSubmitForm url={samlData.url} fields={samlData.fields} />}
-      <form className="w-full">
+      <form className="azdigi-username-form w-full">
         <div className="">
           <TextInput
             type="text"
@@ -111,6 +111,28 @@ export function UsernameForm({
             data-testid="username-text-input"
             suffix={suffix}
           />
+        </div>
+
+        {error && (
+          <div className="py-4" data-testid="error">
+            <Alert>{error}</Alert>
+          </div>
+        )}
+        <div className="mt-4 flex w-full flex-row items-center">
+          <Button
+            data-testid="submit-button"
+            type="submit"
+            className="self-end"
+            variant={ButtonVariants.Primary}
+            disabled={loading || !formState.isValid}
+            onClick={handleSubmit((e) => submitLoginName(e, organization))}
+          >
+            {loading && <Spinner className="mr-2 h-5 w-5" />}
+            <Translated i18nKey="submit" namespace="loginname" />
+          </Button>
+          <BackButton data-testid="back-button" />
+        </div>
+        <div className="azdigi-username-form__register">
           {allowRegister && (
             <button
               className="text-sm transition-all hover:text-primary-light-500 dark:hover:text-primary-dark-500"
@@ -132,27 +154,6 @@ export function UsernameForm({
               <Translated i18nKey="register" namespace="loginname" />
             </button>
           )}
-        </div>
-
-        {error && (
-          <div className="py-4" data-testid="error">
-            <Alert>{error}</Alert>
-          </div>
-        )}
-        <div className="mt-4 flex w-full flex-row items-center">
-          <BackButton data-testid="back-button" />
-          <span className="flex-grow"></span>
-          <Button
-            data-testid="submit-button"
-            type="submit"
-            className="self-end"
-            variant={ButtonVariants.Primary}
-            disabled={loading || !formState.isValid}
-            onClick={handleSubmit((e) => submitLoginName(e, organization))}
-          >
-            {loading && <Spinner className="mr-2 h-5 w-5" />}
-            <Translated i18nKey="submit" namespace="loginname" />
-          </Button>
         </div>
       </form>
     </>

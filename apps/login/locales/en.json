@@ -507,6 +507,12 @@
     }
   },
   "azdigiFrame": {
+    "portal": {
+      "title": "One account for every AZDIGI service",
+      "description": "Manage your services, payments and support at AZDIGI Portal.",
+      "ecosystem": "AZDIGI service ecosystem",
+      "caption": "AZDIGI Portal — Your service center"
+    },
     "signin": {
       "eyebrow": "AZDIGI account",
       "title": "Sign in to AZDIGI",

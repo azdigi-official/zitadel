@@ -20,20 +20,22 @@ export async function FooterLinks() {
     { href: legal?.supportEmail ? `mailto:${legal.supportEmail}` : undefined, label: legal?.supportEmail ?? "" },
   ].filter((link): link is { href: string; label: string } => !!link.href);
 
-  if (links.length === 0) {
-    return null;
-  }
-
   return (
-    <nav
-      aria-label="legal"
-      className="mx-auto flex max-w-[440px] flex-wrap justify-center gap-x-4 gap-y-1 px-4 pb-4 text-xs text-text-light-secondary-500 dark:text-text-dark-secondary-500 md:max-w-full"
-    >
-      {links.map((link) => (
-        <a key={link.href} href={link.href} target={link.href.startsWith("mailto:") ? undefined : "_blank"} rel="noreferrer" className="hover:underline">
-          {link.label}
-        </a>
-      ))}
-    </nav>
+    <footer className="azdigi-footer">
+      <p>© {new Date().getFullYear()} AZDIGI. All rights reserved.</p>
+      <nav aria-label="legal" className="azdigi-footer__links">
+        {links.map((link) => (
+          <a
+            key={link.href}
+            href={link.href}
+            target={link.href.startsWith("mailto:") ? undefined : "_blank"}
+            rel="noreferrer"
+            className="hover:underline"
+          >
+            {link.label}
+          </a>
+        ))}
+      </nav>
+    </footer>
   );
 }

@@ -40,7 +40,7 @@ export function DynamicTheme({
     return children;
   }, [children, isSideBySide]);
 
-  // AZDIGI: every page uses the AntiWHMCS two-card frame (components/azdigi/auth-frame.tsx, #48); the stock layouts
+  // AZDIGI: every page uses the Portal two-panel frame (components/azdigi/auth-frame.tsx); the stock layouts
   // below stay untouched to keep upstream merges small, but are not reached
   const azdigiFrame = true;
   if (azdigiFrame) {
