@@ -273,6 +273,7 @@ export function LoginOTP({
                 type="button"
                 className="ml-4 cursor-pointer text-primary-light-500 hover:text-primary-light-400 disabled:cursor-default disabled:text-gray-400 dark:text-primary-dark-500 hover:dark:text-primary-dark-400 dark:disabled:text-gray-700"
                 onClick={async () => {
+                  setError("");
                   setLoading(true);
                   const response = await updateSessionForOTPChallenge();
                   if (response?.error) {
