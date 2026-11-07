@@ -315,6 +315,12 @@ async function updateOrCreateSessionNow(options: UpdateSessionCommand): Promise<
         humanUser: user?.type.case === "human" ? user.type.value : undefined,
         userState: user?.state,
       });
+      if (!decision.eligible && decision.reason === "setup-required") {
+        const params = passwordParams(current.factors.user.loginName, organizationId, requestId);
+        params.set("send", "true");
+        params.set("invite", String(decision.invite));
+        return { error: t("otpFirstNotAllowed"), redirect: "/verify?" + params };
+      }
       if (!decision.eligible && decision.reason === "user-state") {
         console.warn("[azdigi] OTP-first refused", { userId, organizationId, reason: decision.reason });
         const unlockAt = await unlockEtaForUser(serviceConfig, userId);

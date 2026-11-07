@@ -118,6 +118,14 @@ describe("updateOrCreateSession", () => {
     expect(cookie.setSessionAndUpdateCookie).not.toHaveBeenCalled();
   });
 
+  test.each([true, false])("a customer needing setup is sent to verification before any OTP challenge (invite=%s)", async (invite) => {
+    vi.mocked(zitadel.getSession).mockResolvedValue({ session: liveSession() } as any);
+    vi.mocked(otpFirst.decideOtpFirstForUser).mockResolvedValue({ eligible: false, reason: "setup-required", invite } as any);
+    const res = await updateOrCreateSession({ loginName: "a@b.c", organization: "o1", requestId: "oidc_1", challenges: create(RequestChallengesSchema, { otpEmail: {} }) });
+    expect(res).toEqual({ error: "otpFirstNotAllowed", redirect: `/verify?loginName=a%40b.c&organization=o1&requestId=oidc_1&send=true&invite=${invite}` });
+    expect(cookie.setSessionAndUpdateCookie).not.toHaveBeenCalled();
+  });
+
   test("a session with a verified password may request an email code as a second factor without eligibility", async () => {
     vi.mocked(zitadel.getSession).mockResolvedValue({ session: liveSession({ password: { verifiedAt: at } }) } as any);
     vi.mocked(cookie.setSessionAndUpdateCookie).mockResolvedValue({ ...liveSession({ password: { verifiedAt: at } }), challenges: undefined } as any);

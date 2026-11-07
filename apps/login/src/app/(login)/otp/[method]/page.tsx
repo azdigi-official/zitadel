@@ -70,7 +70,7 @@ export default async function Page(props: {
     : undefined;
   const humanUser = user?.type.case === "human" ? user.type.value : undefined;
 
-  // AZDIGI: a code as the first factor only for eligible users; everyone else is sent to the password page
+  // AZDIGI: first-factor codes require eligibility; new customers recover through verification, others use password
   // (the server action enforces the same rule, this just avoids a dead screen)
   if (session?.factors?.user?.id && ["email", "sms"].includes(method ?? "") && !hasVerifiedFirstFactor(session)) {
     const decision = await decideOtpFirstForUser({
@@ -87,6 +87,11 @@ export default async function Page(props: {
       }
       if (requestId) {
         params.append("requestId", requestId);
+      }
+      if (decision.reason === "setup-required") {
+        params.set("send", "true");
+        params.set("invite", String(decision.invite));
+        redirect("/verify?" + params);
       }
       redirect("/password?" + params);
     }

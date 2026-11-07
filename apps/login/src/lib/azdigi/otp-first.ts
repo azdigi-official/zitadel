@@ -10,6 +10,7 @@ import { isOtpFirstOrg } from "./org-lookup";
  */
 export type OtpFirstDecision =
   | { eligible: true; altPassword: boolean; altPasskey: boolean }
+  | { eligible: false; reason: "setup-required"; invite: boolean }
   | { eligible: false; reason: "org" | "forceMfa" | "no-otp-email-method" | "email-unverified" | "user-state" };
 
 export type OtpFirstInput = {
@@ -26,6 +27,11 @@ export function decideOtpFirst({ otpFirstOrg, loginSettings, authMethods, emailV
   }
   if (!loginSettings || loginSettings.forceMfa) {
     return { eligible: false, reason: "forceMfa" };
+  }
+  // A provisioned customer can revisit an old OTP URL before enrolling any factor.
+  // Recover through the existing email verification flow; this does not authenticate them.
+  if (authMethods?.length === 0 && userState === UserState.ACTIVE) {
+    return { eligible: false, reason: "setup-required", invite: !emailVerified };
   }
   if (!authMethods?.includes(AuthenticationMethodType.OTP_EMAIL)) {
     return { eligible: false, reason: "no-otp-email-method" };

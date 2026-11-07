@@ -28,6 +28,19 @@ describe("decideOtpFirst", () => {
     expect(decideOtpFirst({ ...base, authMethods: withPasskey }).eligible && (decideOtpFirst({ ...base, authMethods: withPasskey }) as any).altPasskey).toBe(false);
     expect((decideOtpFirst({ ...base, loginSettings: { forceMfa: false, passkeysType: 1 } as any, authMethods: withPasskey }) as any).altPasskey).toBe(true);
   });
+  test("an active customer with no methods needs setup, not a password", () => {
+    expect(decideOtpFirst({ ...base, authMethods: [], emailVerified: false })).toEqual({ eligible: false, reason: "setup-required", invite: true });
+    expect(decideOtpFirst({ ...base, authMethods: [] })).toEqual({ eligible: false, reason: "setup-required", invite: false });
+  });
+  test("setup recovery never applies to staff, forced MFA, unavailable methods, or inactive users", () => {
+    for (const input of [
+      { ...base, authMethods: [], otpFirstOrg: false },
+      { ...base, authMethods: [], loginSettings: { forceMfa: true } as any },
+      { ...base, authMethods: undefined },
+      { ...base, authMethods: [], userState: UserState.LOCKED },
+      { ...base, authMethods: [], userState: UserState.INACTIVE },
+    ]) expect(decideOtpFirst(input)).not.toHaveProperty("reason", "setup-required");
+  });
   test("refusals: org, forceMfa, missing method, unverified email, locked user, missing settings", () => {
     expect(decideOtpFirst({ ...base, otpFirstOrg: false })).toEqual({ eligible: false, reason: "org" });
     expect(decideOtpFirst({ ...base, loginSettings: { forceMfa: true } as any })).toEqual({ eligible: false, reason: "forceMfa" });
