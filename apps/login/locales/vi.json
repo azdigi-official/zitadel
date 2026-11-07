@@ -441,6 +441,7 @@
       "otpFirstNotAllowed": "Tài khoản này không đăng nhập bằng mã được. Hãy tiếp tục bằng mật khẩu.",
       "tooManyCodeRequests": "Bạn đã yêu cầu mã quá nhiều lần. Thử lại sau {minutes} phút.",
       "tooManyCodeAttempts": "Nhập sai mã quá nhiều lần. Yêu cầu mã mới sau {minutes} phút.",
+      "codeUnavailable": "Mã không còn hiệu lực trong phiên này. Vui lòng gửi lại mã và dùng mã mới nhất.",
       "codeInvalid": "Mã không đúng. Còn {remaining} lần thử trước khi phải lấy mã mới.",
       "userLocked": "Tài khoản này đã bị khoá. Liên hệ bộ phận hỗ trợ để mở khoá.",
       "userLockedUntil": "Tài khoản này bị khoá tới khoảng {time, time, short}.",

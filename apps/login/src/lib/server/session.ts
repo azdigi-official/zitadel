@@ -152,6 +152,9 @@ function otpErrorToResult(
   if (isLockedMessage(raw)) {
     return { error: unlockAt ? t("userLockedUntil", { time: unlockAt }) : t("userLocked"), locked: true };
   }
+  if (/COMMAND-S34gh|Code not found|Errors\.User\.Code\.NotFound/i.test(raw)) {
+    return { error: t("codeUnavailable") };
+  }
   const failedAttempts: number | undefined =
     typeof (error as any)?.failedAttempts === "number" ? (error as any).failedAttempts : undefined;
   if (failedAttempts !== undefined || /Code is invalid|CODE-|Errors\.User\.Code|Errors\.User\.MFA\.OTP/i.test(raw)) {
@@ -247,14 +250,17 @@ async function updateOrCreateSessionNow(options: UpdateSessionCommand): Promise<
     }
 
     // AZDIGI: an email code as the first factor without a session cookie — only an account of the OTP-first organisation
-    // continues; any other name (unknown, staff, another organisation) gets the decoy answers (decoy.ts). Decided from the
-    // account found, never from the organisation the browser sends.
+    // continues; any other name (unknown, staff, another organisation) gets the decoy answers (decoy.ts).
+    // Scope discovery to the requested organization and verify the returned account owner before issuing a challenge.
     if (!sessionId && (challenges?.otpEmail || checks?.otpEmail)) {
-      const otpOrg = await decoyOrganization(serviceConfig, undefined);
-      const found = await listUsers({ serviceConfig, loginName: decoyLoginName(loginName) }).catch(() => undefined);
+      const otpOrg = await decoyOrganization(serviceConfig, organization);
+      if (checks?.otpEmail) {
+        return decoyOtpAnswer({ loginName, organization: otpOrg ?? organization ?? "", tries: true, ip: clientIpFromHeaders(_headers), t });
+      }
+      const found = await listUsers({ serviceConfig, loginName: decoyLoginName(loginName), organizationId: organization }).catch(() => undefined);
       const account = found?.details?.totalResult === BigInt(1) ? found.result[0] : undefined;
-      if (otpOrg && !(account && (await isOtpFirstOrg(serviceConfig, account.details?.resourceOwner)))) {
-        return decoyOtpAnswer({ loginName, organization: otpOrg, tries: !!checks?.otpEmail, ip: clientIpFromHeaders(_headers), t });
+      if ((otpOrg || organization) && !(account && (!organization || account.details?.resourceOwner === organization) && (await isOtpFirstOrg(serviceConfig, account.details?.resourceOwner)))) {
+        return decoyOtpAnswer({ loginName, organization: otpOrg ?? organization ?? "", tries: !!checks?.otpEmail, ip: clientIpFromHeaders(_headers), t });
       }
     }
 
@@ -294,6 +300,9 @@ async function updateOrCreateSessionNow(options: UpdateSessionCommand): Promise<
     }
     userId = current.factors.user.id;
     const organizationId = current.factors.user.organizationId;
+    if (organization && organization !== organizationId) {
+      return { error: t("couldNotFindSession") };
+    }
 
     // the soft attempt limit comes first: a 3rd wrong code would lock the user in Zitadel
     if (triesOtpCode) {

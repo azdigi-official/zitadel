@@ -441,6 +441,7 @@
       "otpFirstNotAllowed": "Signing in with a code is not available for this account. Continue with your password.",
       "tooManyCodeRequests": "Too many codes were requested. Try again in {minutes} minutes.",
       "tooManyCodeAttempts": "Too many wrong codes. Request a new code in {minutes} minutes.",
+      "codeUnavailable": "This session no longer has an active code. Request a new code and use the latest one.",
       "codeInvalid": "The code is not valid. {remaining} attempts left before a new code is required.",
       "userLocked": "This account is locked. Contact support to unlock it.",
       "userLockedUntil": "This account is locked until about {time, time, short}.",

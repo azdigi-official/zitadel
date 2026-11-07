@@ -212,6 +212,38 @@ describe("updateOrCreateSession", () => {
     expect(vi.mocked(cookie.setSessionAndUpdateCookie).mock.calls[0][0].challenges?.otpEmail).toBeDefined();
   });
 
+  test("an OTP request scoped to another organization never creates a session for the globally found customer", async () => {
+    vi.mocked(cookies.getSessionCookieByLoginName).mockResolvedValue(undefined as any);
+    vi.mocked(zitadel.listUsers).mockResolvedValue({ details: { totalResult: BigInt(1) }, result: [{ userId: "u1", details: { resourceOwner: "o1" } }] } as any);
+    await updateOrCreateSession({ loginName: "a@b.c", organization: "other-customer-org", challenges: create(RequestChallengesSchema, { otpEmail: {} }) });
+    expect(zitadel.listUsers).toHaveBeenCalledWith(expect.objectContaining({ organizationId: "other-customer-org" }));
+    expect(cookie.createSessionAndUpdateCookie).not.toHaveBeenCalled();
+    expect(cookie.setSessionAndUpdateCookie).not.toHaveBeenCalled();
+  });
+
+  test("checking an email code without a cookie never creates a fresh unchallenged session", async () => {
+    vi.mocked(cookies.getSessionCookieByLoginName).mockResolvedValue(undefined as any);
+    vi.mocked(zitadel.listUsers).mockResolvedValue({ details: { totalResult: BigInt(1) }, result: [{ userId: "u1", details: { resourceOwner: "o1" } }] } as any);
+    const res = await updateOrCreateSession({ loginName: "a@b.c", organization: "o1", checks: create(ChecksSchema, { otpEmail: { code: "000000" } }) });
+    expect(res.error).toMatch(/^codeInvalid/);
+    expect(cookie.createSessionAndUpdateCookie).not.toHaveBeenCalled();
+  });
+
+  test("an existing session from another organization cannot send a challenge", async () => {
+    vi.mocked(zitadel.getSession).mockResolvedValue({ session: liveSession() } as any);
+    expect(await updateOrCreateSession({ loginName: "a@b.c", organization: "other-customer-org", challenges: create(RequestChallengesSchema, { otpEmail: {} }) })).toEqual({ error: "couldNotFindSession" });
+    expect(cookie.setSessionAndUpdateCookie).not.toHaveBeenCalled();
+  });
+
+  test("a missing OTP challenge returns a localized recovery error without recreating the session", async () => {
+    vi.mocked(zitadel.getSession).mockResolvedValue({ session: liveSession() } as any);
+    vi.mocked(otpFirst.decideOtpFirstForUser).mockResolvedValue({ eligible: true, altPassword: false });
+    vi.mocked(cookie.setSessionAndUpdateCookie).mockRejectedValue({ rawMessage: "Code not found (COMMAND-S34gh)", code: 9 });
+    const res = await updateOrCreateSession({ loginName: "a@b.c", organization: "o1", checks: create(ChecksSchema, { otpEmail: { code: "000000" } }) });
+    expect(res).toEqual({ error: "codeUnavailable" });
+    expect(cookie.createSessionAndUpdateCookie).not.toHaveBeenCalled();
+  });
+
   test("the WebAuthn challenge is still returned to the browser", async () => {
     vi.mocked(cookie.setSessionAndUpdateCookie).mockResolvedValue({ ...liveSession(), challenges: { webAuthN: { publicKeyCredentialRequestOptions: { publicKey: {} } } } } as any);
     const res = await updateOrCreateSession({ loginName: "a@b.c", challenges: create(RequestChallengesSchema, { webAuthN: { domain: "", userVerificationRequirement: 1 } }) });
