@@ -248,6 +248,8 @@
       "required": {
         "code": "This field is required"
       },
+      "emailVerifiedTitle": "Email verified successfully",
+      "afterVerificationDescription": "Next, enter the new sign-in code sent to your email to finish signing in. This is different from the email verification code you just used.",
       "firstFactorTitle": "Sign in with a code",
       "emailFirstDescription": "We sent a one-time code to your email address. Enter it to sign in.",
       "usePassword": "Use password instead",

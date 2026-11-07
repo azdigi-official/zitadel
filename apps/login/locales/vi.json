@@ -248,6 +248,8 @@
       "required": {
         "code": "Trường này là bắt buộc"
       },
+      "emailVerifiedTitle": "Email đã được xác minh thành công",
+      "afterVerificationDescription": "Bước tiếp theo: nhập mã đăng nhập mới được gửi tới email của bạn để hoàn tất đăng nhập. Mã này khác với mã xác minh email vừa dùng.",
       "firstFactorTitle": "Đăng nhập bằng mã",
       "emailFirstDescription": "Chúng tôi đã gửi mã dùng một lần tới email của bạn. Nhập mã để đăng nhập.",
       "usePassword": "Dùng mật khẩu",

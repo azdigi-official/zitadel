@@ -225,6 +225,12 @@ export async function sendVerification(command: VerifyUserByEmailCommand) {
   );
 
   if (mfaFactorCheck?.redirect) {
+    // Presentation context only: the OTP page checks the live verified email before showing success.
+    if (mfaFactorCheck.redirect.startsWith("/otp/email?")) {
+      const params = new URLSearchParams(mfaFactorCheck.redirect.split("?")[1]);
+      params.set("emailVerified", "true");
+      return { redirect: "/otp/email?" + params };
+    }
     return mfaFactorCheck;
   }
 

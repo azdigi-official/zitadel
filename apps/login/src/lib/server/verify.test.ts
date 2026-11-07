@@ -1,6 +1,9 @@
 import { vi, describe, expect, test, beforeEach } from "vitest";
 import { sendVerification } from "./verify";
 
+vi.mock("../verify-helper", () => ({ checkMFAFactors: vi.fn() }));
+import { checkMFAFactors } from "../verify-helper";
+
 // Mock dependencies
 vi.mock("../azdigi/org-lookup", () => ({
   isOtpFirstOrg: vi.fn(async () => false),
@@ -113,5 +116,17 @@ describe("sendVerification", () => {
     expect(mockGetSession).toHaveBeenCalled();
     // Verify creation was attempted
     expect(mockCreateSessionAndUpdateCookie).toHaveBeenCalled();
+  });
+});
+
+test("successful email verification labels the next OTP screen without losing request context", async () => {
+  vi.mocked(verifyEmail).mockResolvedValue({} as any);
+  vi.mocked(getUserByID).mockResolvedValue({ user: { userId: "user-1", preferredLoginName: "test@example.com" } } as any);
+  vi.mocked(getSessionCookieByLoginName).mockResolvedValue({ id: "s1", token: "t" } as any);
+  vi.mocked(getSession).mockResolvedValue({ session: { id: "s1", factors: { user: { id: "user-1" } } } } as any);
+  vi.mocked(listAuthenticationMethodTypes).mockResolvedValue({ authMethodTypes: [4] } as any);
+  vi.mocked(checkMFAFactors).mockResolvedValue({ redirect: "/otp/email?loginName=test%40example.com&requestId=oidc_1" });
+  expect(await sendVerification({ userId: "user-1", code: "123456", isInvite: false })).toEqual({
+    redirect: "/otp/email?loginName=test%40example.com&requestId=oidc_1&emailVerified=true",
   });
 });

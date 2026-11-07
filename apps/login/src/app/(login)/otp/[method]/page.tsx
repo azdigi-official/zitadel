@@ -12,6 +12,7 @@ import { getPublicHost } from "@/lib/server/host";
 import { getServiceConfig } from "@/lib/service-url";
 import { loadMostRecentSession } from "@/lib/session";
 import { getBrandingSettings, getLoginSettings, getSession, getUserByID, getUserMetadata } from "@/lib/zitadel";
+import { CheckCircleIcon } from "@heroicons/react/24/outline";
 import { Metadata } from "next";
 import { getTranslations } from "next-intl/server";
 import { headers } from "next/headers";
@@ -119,6 +120,7 @@ export default async function Page(props: {
   if (!session && !decoy && method === "email" && loginName && !sessionId) {
     redirect("/password?" + new URLSearchParams({ loginName, ...(organization && { organization }), ...(requestId && { requestId }) }));
   }
+  const justVerifiedEmail = method === "email" && firstFactor && searchParams.emailVerified === "true" && !!humanUser?.email?.isVerified;
   const shownLoginName = decoy ? decoyLoginName(loginName!) : (loginName ?? session?.factors?.user?.loginName);
 
   // email links do not come with organization, thus we need to use the session's organization
@@ -141,6 +143,12 @@ export default async function Page(props: {
             namespace="otp"
           />
         </h1>
+        {justVerifiedEmail && (
+          <div role="status" className="flex items-start gap-3 rounded-lg border border-green-600/20 bg-green-50 p-4 text-green-800 dark:bg-green-950/30 dark:text-green-200">
+            <CheckCircleIcon aria-hidden="true" className="h-5 w-5 shrink-0" />
+            <span><Translated i18nKey="verify.emailVerifiedTitle" namespace="otp" /></span>
+          </div>
+        )}
         {method === "time-based" && (
           <p className="ztdl-p">
             <Translated i18nKey="verify.totpDescription" namespace="otp" />
@@ -154,7 +162,7 @@ export default async function Page(props: {
         {method === "email" && (
           <p className="ztdl-p">
             <Translated
-              i18nKey={firstFactor ? "verify.emailFirstDescription" : "verify.emailDescription"}
+              i18nKey={justVerifiedEmail ? "verify.afterVerificationDescription" : firstFactor ? "verify.emailFirstDescription" : "verify.emailDescription"}
               namespace="otp"
             />
           </p>
