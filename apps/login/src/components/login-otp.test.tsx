@@ -3,7 +3,8 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { LoginOTP } from "./login-otp";
 
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
+const push = vi.hoisted(() => vi.fn());
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
 vi.mock("next-intl", () => ({ useTranslations: () => (key: string) => key }));
 vi.mock("@/lib/server/session", () => ({ updateOrCreateSession: vi.fn() }));
 vi.mock("@/lib/server/password", () => ({ resetPassword: vi.fn() }));
@@ -46,4 +47,23 @@ test("a failed resend displays the current error", async () => {
   await waitFor(() => expect(screen.getByTestId("resend-button")).toBeEnabled());
   fireEvent.click(screen.getByTestId("resend-button"));
   await waitFor(() => expect(screen.getByTestId("error")).toHaveTextContent("Still rate limited"));
+});
+
+test.each([
+  ["password-button", "/password"],
+  ["passkey-button", "/passkey"],
+])("%s waits for the code request in flight before leaving the screen", async (button, path) => {
+  let finish!: (value: any) => void;
+  vi.mocked(updateOrCreateSession).mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  render(<LoginOTP host="login.example.test" loginName="customer@example.test" method="email" altPassword altPasskey />);
+  fireEvent.click(screen.getByTestId(button));
+  await act(async () => {});
+  expect(push).not.toHaveBeenCalled();
+  await act(async () => finish({ sessionId: "s1" }));
+  await waitFor(() => expect(push).toHaveBeenCalledWith(expect.stringContaining(path + "?")));
 });

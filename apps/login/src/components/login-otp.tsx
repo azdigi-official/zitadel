@@ -64,6 +64,9 @@ export function LoginOTP({
   const router = useRouter();
 
   const initialized = useRef(false);
+  // AZDIGI: the code request still in flight. It rotates the session token, and so does the password or passkey step; if
+  // both run at once the browser can keep the older token, and every later page fails to read the session.
+  const pendingChallenge = useRef<Promise<unknown> | null>(null);
 
   const { register, handleSubmit, formState } = useForm<Inputs>({
     mode: "onChange",
@@ -88,16 +91,20 @@ export function LoginOTP({
     }
 
     let response;
+    const request = updateOrCreateSession({
+      loginName,
+      sessionId,
+      organization,
+      challenges,
+      requestId,
+    });
+    pendingChallenge.current = request;
     try {
-      response = await updateOrCreateSession({
-        loginName,
-        sessionId,
-        organization,
-        challenges,
-        requestId,
-      });
+      response = await request;
     } catch {
       return { error: "Could not request OTP challenge" };
+    } finally {
+      if (pendingChallenge.current === request) pendingChallenge.current = null;
     }
 
     if (response && "error" in response && response.error) {
@@ -203,7 +210,11 @@ export function LoginOTP({
     router.push("/password/set?" + params);
   }
 
-  function goTo(path: "/password" | "/passkey") {
+  async function goTo(path: "/password" | "/passkey") {
+    if (pendingChallenge.current) {
+      setLoading(true);
+      await pendingChallenge.current.catch(() => undefined);
+    }
     const params = new URLSearchParams();
     if (loginName) params.append("loginName", loginName);
     if (sessionId) params.append("sessionId", sessionId);

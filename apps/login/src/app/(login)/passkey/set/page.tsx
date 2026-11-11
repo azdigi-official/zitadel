@@ -1,4 +1,5 @@
 import { Alert, AlertType } from "@/components/alert";
+import { Button, ButtonVariants } from "@/components/button";
 import { DynamicTheme } from "@/components/dynamic-theme";
 import { RegisterPasskey } from "@/components/register-passkey";
 import { Translated } from "@/components/translated";
@@ -10,6 +11,7 @@ import { Session } from "@zitadel/proto/zitadel/session/v2/session_pb";
 import { HumanUser, User } from "@zitadel/proto/zitadel/user/v2/user_pb";
 import { Metadata } from "next";
 import { getTranslations } from "next-intl/server";
+import Link from "next/link";
 import { headers } from "next/headers";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -28,11 +30,13 @@ export default async function Page(props: { searchParams: Promise<Record<string 
   // also allow no session to be found for userId-based flows
   let session: Session | undefined;
   if (loginName) {
+    // AZDIGI: a cookie whose session ended or whose token is stale counts as "not signed in" (the screen then offers the
+    // way back to sign-in) instead of failing the whole page
     session = await loadMostRecentSession({ serviceConfig, sessionParams: {
         loginName,
         organization,
       },
-    });
+    }).catch(() => undefined);
   }
 
   const branding = await getBrandingSettings({ serviceConfig, organization,
@@ -49,6 +53,12 @@ export default async function Page(props: { searchParams: Promise<Record<string 
       displayName = (user.type.value as HumanUser).profile?.displayName;
     }
   }
+
+  // AZDIGI: the way back keeps the organisation and the application request, so signing in lands in the same context
+  const backToLoginParams = new URLSearchParams();
+  if (loginName) backToLoginParams.set("loginName", loginName);
+  if (organization) backToLoginParams.set("organization", organization);
+  if (requestId) backToLoginParams.set("requestId", requestId);
 
   return (
     <DynamicTheme branding={branding}>
@@ -97,6 +107,14 @@ export default async function Page(props: { searchParams: Promise<Record<string 
             <Alert>
               <Translated i18nKey="unknownContext" namespace="error" />
             </Alert>
+            <div className="mt-8 flex w-full flex-row items-center">
+              <span className="flex-grow"></span>
+              <Link href={"/loginname?" + backToLoginParams} data-testid="back-to-login">
+                <Button type="button" variant={ButtonVariants.Primary}>
+                  <Translated i18nKey="backToLogin" namespace="error" />
+                </Button>
+              </Link>
+            </div>
           </div>
         )}
 

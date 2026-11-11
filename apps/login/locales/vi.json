@@ -485,6 +485,7 @@
     "noUserCode": "Chưa nhập mã người dùng!",
     "noDeviceRequest": "Không tìm thấy yêu cầu thiết bị.",
     "unknownContext": "Không xác định được ngữ cảnh người dùng. Hãy nhập tên đăng nhập trước hoặc cung cấp loginName trong tham số.",
+    "backToLogin": "Về trang đăng nhập",
     "sessionExpired": "Phiên hiện tại đã hết hạn. Hãy đăng nhập lại.",
     "failedLoading": "Không tải được dữ liệu. Hãy thử lại.",
     "tryagain": "Thử lại",
