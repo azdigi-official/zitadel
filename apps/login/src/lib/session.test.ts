@@ -7,7 +7,8 @@ import { AuthenticationMethodType } from "@zitadel/proto/zitadel/user/v2/user_se
 import { SecondFactorType } from "@zitadel/proto/zitadel/settings/v2/login_settings_pb";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import * as orgLookup from "./azdigi/org-lookup";
-import { checkSessionPolicy, findValidSession, isSessionValid } from "./session";
+import * as cookiesModule from "./cookies";
+import { checkSessionPolicy, findValidSession, isSessionValid, loadMostRecentSession } from "./session";
 import * as zitadelModule from "./zitadel";
 
 vi.mock("./zitadel", () => ({
@@ -152,5 +153,25 @@ describe("findValidSession", () => {
     expect((await findValidSession({ serviceConfig, sessions: [stale, good] }))?.id).toBe("good");
     expect(await findValidSession({ serviceConfig, sessions: [stale, good], authRequest: { hintUserId: "other" } as any })).toBeUndefined();
     expect((await findValidSession({ serviceConfig, sessions: [stale, good], authRequest: { loginHint: "a@b.c" } as any }))?.id).toBe("good");
+  });
+});
+
+describe("loadMostRecentSession", () => {
+  const cookie = { id: "session-id", token: "token", loginName: "user@example.test" };
+  const load = () => loadMostRecentSession({ serviceConfig, sessionParams: { loginName: "user@example.test" } });
+
+  beforeEach(() => vi.mocked(cookiesModule.getMostRecentCookieWithLoginname).mockResolvedValue(cookie));
+
+  test.each([
+    ["the session no longer exists", 5],
+    ["the cookie's token is no longer the session's", 7],
+  ])("counts as not signed in when %s", async (_, code) => {
+    vi.mocked(zitadelModule.getSession).mockRejectedValue(Object.assign(new Error("denied"), { code }));
+    await expect(load()).resolves.toBeUndefined();
+  });
+
+  test("still fails when the API cannot be reached", async () => {
+    vi.mocked(zitadelModule.getSession).mockRejectedValue(Object.assign(new Error("unavailable"), { code: 14 }));
+    await expect(load()).rejects.toThrow("unavailable");
   });
 });

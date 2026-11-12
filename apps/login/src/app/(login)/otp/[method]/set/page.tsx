@@ -80,7 +80,12 @@ export default async function Page(props: {
       throw new Error("Invalid method");
     }
   } else {
-    throw new Error("No session found");
+    // AZDIGI: without a readable session there is nothing to enrol a factor on; start again at sign-in
+    const params = new URLSearchParams();
+    if (loginName) params.append("loginName", loginName);
+    if (organization) params.append("organization", organization);
+    if (requestId) params.append("requestId", requestId);
+    redirect("/loginname?" + params);
   }
 
   const paramsToContinue = new URLSearchParams({});

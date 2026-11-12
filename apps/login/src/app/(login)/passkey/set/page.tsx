@@ -30,13 +30,11 @@ export default async function Page(props: { searchParams: Promise<Record<string 
   // also allow no session to be found for userId-based flows
   let session: Session | undefined;
   if (loginName) {
-    // AZDIGI: a cookie whose session ended or whose token is stale counts as "not signed in" (the screen then offers the
-    // way back to sign-in) instead of failing the whole page
     session = await loadMostRecentSession({ serviceConfig, sessionParams: {
         loginName,
         organization,
       },
-    }).catch(() => undefined);
+    });
   }
 
   const branding = await getBrandingSettings({ serviceConfig, organization,

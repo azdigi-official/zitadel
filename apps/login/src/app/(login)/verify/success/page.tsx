@@ -6,6 +6,7 @@ import { loadMostRecentSession } from "@/lib/session";
 import { getBrandingSettings, getUserByID } from "@/lib/zitadel";
 import { HumanUser, User } from "@zitadel/proto/zitadel/user/v2/user_pb";
 import { headers } from "next/headers";
+import { redirect } from "next/navigation";
 
 export default async function Page(props: { searchParams: Promise<any> }) {
   const searchParams = await props.searchParams;
@@ -25,8 +26,12 @@ export default async function Page(props: { searchParams: Promise<any> }) {
 
   const id = userId ?? sessionFactors?.factors?.user?.id;
 
+  // AZDIGI: opened without a user or a readable session (stale link, signed out meanwhile): start again at sign-in
   if (!id) {
-    throw Error("Failed to get user id");
+    const params = new URLSearchParams();
+    if (loginName) params.append("loginName", loginName);
+    if (organization) params.append("organization", organization);
+    redirect("/loginname?" + params);
   }
 
   const userResponse = await getUserByID({ serviceConfig, userId: id,

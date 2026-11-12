@@ -10,6 +10,10 @@ import { assertSessionSatisfiesPolicy, PolicyVerdict } from "./azdigi/policy";
 import { getMostRecentCookieWithLoginname } from "./cookies";
 import { getLoginSettings, getSession, getUserByID, ServiceConfig } from "./zitadel";
 
+// gRPC status codes of GetSession: the session is gone / the cookie's token is not the session's current one
+const SESSION_NOT_FOUND = 5;
+const SESSION_TOKEN_REJECTED = 7;
+
 type LoadMostRecentSessionParams = {
   serviceConfig: ServiceConfig;
   sessionParams: {
@@ -33,6 +37,14 @@ export async function loadMostRecentSession({
 
   return getSession({ serviceConfig, sessionId: recent.id, sessionToken: recent.token }).then(
     (resp: GetSessionResponse) => resp.session,
+    (error) => {
+      // AZDIGI: a cookie can outlive its session (signed out elsewhere, account removed, expired) or carry a token the
+      // server no longer accepts. That is "not signed in", which every caller handles; other failures still throw.
+      if (error?.code === SESSION_NOT_FOUND || error?.code === SESSION_TOKEN_REJECTED) {
+        return undefined;
+      }
+      throw error;
+    },
   );
 }
 

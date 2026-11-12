@@ -44,8 +44,9 @@ export default async function Page(props: { searchParams: Promise<Record<string 
   async function getAuthMethodsAndUser(session?: Session) {
     const userId = session?.factors?.user?.id;
 
+    // AZDIGI: no readable session is "not signed in" (the page says so below), not a server error
     if (!userId) {
-      throw Error("Could not get user id from session");
+      return undefined;
     }
 
     const methods = await listAuthenticationMethodTypes({ serviceConfig, userId });
