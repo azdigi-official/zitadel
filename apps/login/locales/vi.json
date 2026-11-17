@@ -565,5 +565,35 @@
       "title": "Mật khẩu tài khoản",
       "description": "Đặt mật khẩu để đăng nhập khi bạn không dùng mã một lần."
     }
+  },
+  "azdigiAccount": {
+    "title": "Tài khoản của tôi",
+    "description": "Các cách đăng nhập của tài khoản này.",
+    "notice": {
+      "passkey": "Đã thêm passkey. Từ lần sau bạn có thể đăng nhập bằng passkey này."
+    },
+    "passkeys": {
+      "title": "Passkey",
+      "none": "Chưa có passkey nào.",
+      "unknown": "Chưa đọc được danh sách passkey. Vui lòng tải lại trang.",
+      "unnamed": "Passkey chưa đặt tên",
+      "add": "Thêm passkey",
+      "addAnother": "Thêm passkey khác"
+    },
+    "password": {
+      "title": "Mật khẩu",
+      "set": "Đã đặt mật khẩu.",
+      "unset": "Chưa đặt mật khẩu."
+    },
+    "secondFactors": {
+      "title": "Xác thực 2 lớp",
+      "none": "Chưa bật xác thực 2 lớp.",
+      "totp": "Ứng dụng xác thực (mã TOTP)",
+      "u2f": "Khoá bảo mật",
+      "otpEmail": "Mã gửi qua email",
+      "otpSms": "Mã gửi qua điện thoại"
+    },
+    "signOut": "Đăng xuất",
+    "continue": "Về ứng dụng"
   }
 }

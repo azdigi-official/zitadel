@@ -565,5 +565,35 @@
       "title": "Account password",
       "description": "Set a password to sign in when you are not using a one-time code."
     }
+  },
+  "azdigiAccount": {
+    "title": "My account",
+    "description": "The ways this account can sign in.",
+    "notice": {
+      "passkey": "Passkey added. You can sign in with it from now on."
+    },
+    "passkeys": {
+      "title": "Passkeys",
+      "none": "No passkey yet.",
+      "unknown": "The passkey list could not be read. Please reload the page.",
+      "unnamed": "Unnamed passkey",
+      "add": "Add a passkey",
+      "addAnother": "Add another passkey"
+    },
+    "password": {
+      "title": "Password",
+      "set": "A password is set.",
+      "unset": "No password is set."
+    },
+    "secondFactors": {
+      "title": "Two-factor authentication",
+      "none": "Two-factor authentication is not turned on.",
+      "totp": "Authenticator app (TOTP code)",
+      "u2f": "Security key",
+      "otpEmail": "Code by email",
+      "otpSms": "Code by phone"
+    },
+    "signOut": "Sign out",
+    "continue": "Back to the application"
   }
 }

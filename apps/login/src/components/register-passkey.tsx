@@ -1,5 +1,6 @@
 "use client";
 
+import { rememberAccountNotice } from "@/components/azdigi/account-notice";
 import { coerceToArrayBuffer, coerceToBase64Url } from "@/helpers/base64";
 import { registerPasskeyLink, verifyPasskeyRegistration } from "@/lib/server/passkeys";
 import { useRouter } from "next/navigation";
@@ -155,6 +156,9 @@ export function RegisterPasskey({ sessionId, userId, isPrompt, organization, req
       return;
     }
 
+    // AZDIGI: a passkey was really registered. Without an application request the flow ends at the account page, which
+    // then says so; "skip" also continues from here but must not claim a passkey was added
+    if (!requestId) rememberAccountNotice("passkey");
     continueAndLogin();
   }, [sessionId, userId, code]);
 

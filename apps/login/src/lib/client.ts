@@ -1,4 +1,5 @@
 import { completeAuthFlow } from "./server/auth-flow";
+import { accountUrl } from "./azdigi/account-url";
 
 type FinishFlowCommand =
   | {
@@ -100,14 +101,13 @@ export async function getNextUrl(
   // OIDC/SAML flows are now handled by completeAuthFlowAction() server action
   // This function only handles device flows and fallback navigation
 
-  if (defaultRedirectUri) {
-    console.log("getNextUrl: Using defaultRedirectUri:", defaultRedirectUri);
-    return defaultRedirectUri;
-  }
-
-  const result = goToSignedInPage(command);
-  console.log("getNextUrl: got goToSignedInPage result");
-  return result;
+  // AZDIGI: a flow that did not start at an application ends at the account page (what this account signs in with,
+  // and a button on to the organisation's default redirect) instead of jumping to that redirect or to /signedin
+  return accountUrl({
+    ...("sessionId" in command ? { sessionId: command.sessionId } : {}),
+    ...("loginName" in command ? { loginName: command.loginName } : {}),
+    organization: command.organization,
+  });
 }
 
 export type ServerActionResponse =
