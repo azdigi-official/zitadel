@@ -1,10 +1,10 @@
+import { verificationCheckMatches } from "./azdigi/verification-check";
 import { timestampDate } from "@zitadel/client";
 import { Session } from "@zitadel/proto/zitadel/session/v2/session_pb";
 import { LoginSettings } from "@zitadel/proto/zitadel/settings/v2/login_settings_pb";
 import { PasswordExpirySettings } from "@zitadel/proto/zitadel/settings/v2/password_settings_pb";
 import { HumanUser } from "@zitadel/proto/zitadel/user/v2/user_pb";
 import { AuthenticationMethodType } from "@zitadel/proto/zitadel/user/v2/user_service_pb";
-import crypto from "crypto";
 import moment from "moment";
 import { cookies } from "next/headers";
 import { getFingerprintIdCookie } from "./fingerprint";
@@ -283,17 +283,12 @@ export async function checkUserVerification(userId: string): Promise<boolean> {
     return false;
   }
 
-  const verificationCheck = crypto.createHash("sha256").update(`${userId}:${fingerPrintCookie.value}`).digest("hex");
-
   const cookieValue = await cookiesList.get("verificationCheck")?.value;
 
-  if (!cookieValue) {
-    console.warn("User verification check cookie not found. User verification check failed.");
-    return false;
-  }
-
-  if (cookieValue !== verificationCheck) {
-    console.warn(`User verification check failed. Expected ${verificationCheck} but got ${cookieValue}`);
+  // AZDIGI: an HMAC only the server can produce, compared in constant time (lib/azdigi/verification-check.ts);
+  // upstream's sha256(userId:fingerprintId) could be computed and set by any browser
+  if (!verificationCheckMatches(cookieValue, userId, fingerPrintCookie.value)) {
+    console.warn("User verification check failed.");
     return false;
   }
 

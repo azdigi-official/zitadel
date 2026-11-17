@@ -1,5 +1,6 @@
 "use server";
 
+import { verificationCheckValue } from "@/lib/azdigi/verification-check";
 import { createSessionAndUpdateCookie, createSessionForIdpAndUpdateCookie } from "@/lib/server/cookie";
 import { addHumanUser, addIDPLink, getLoginSettings, getUserByID, listAuthenticationMethodTypes } from "@/lib/zitadel";
 import { create } from "@zitadel/client";
@@ -10,7 +11,6 @@ import { getTranslations } from "next-intl/server";
 import { getServiceConfig } from "../service-url";
 import { checkEmailVerification, checkMFAFactors } from "../verify-helper";
 import { getOrSetFingerprintId } from "../fingerprint";
-import crypto from "crypto";
 import { completeFlowOrGetUrl } from "../client";
 import { resolveOrgIdByName } from "../azdigi/org-lookup";
 
@@ -140,7 +140,8 @@ export async function registerUser(
     const cookiesList = await cookies();
     const userAgentId = await getOrSetFingerprintId();
 
-    const verificationCheck = crypto.createHash("sha256").update(`${session.factors.user.id}:${userAgentId}`).digest("hex");
+    // AZDIGI: keyed with a server secret; upstream's plain hash could be computed by anyone (lib/azdigi/verification-check.ts)
+    const verificationCheck = verificationCheckValue(session.factors.user.id, userAgentId);
 
     await cookiesList.set({
       name: "verificationCheck",

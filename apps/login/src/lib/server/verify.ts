@@ -1,5 +1,6 @@
 "use server";
 
+import { verificationCheckValue } from "@/lib/azdigi/verification-check";
 import {
   addOTPEmail,
   createInviteCode,
@@ -12,7 +13,6 @@ import {
   verifyTOTPRegistration,
   sendEmailCode as zitadelSendEmailCode,
 } from "@/lib/zitadel";
-import crypto from "crypto";
 
 import { create } from "@zitadel/client";
 import { Session } from "@zitadel/proto/zitadel/session/v2/session_pb";
@@ -172,7 +172,8 @@ export async function sendVerification(command: VerifyUserByEmailCommand) {
     const cookiesList = await cookies();
     const userAgentId = await getOrSetFingerprintId();
 
-    const verificationCheck = crypto.createHash("sha256").update(`${user.userId}:${userAgentId}`).digest("hex");
+    // AZDIGI: keyed with a server secret; upstream's plain hash could be computed by anyone (lib/azdigi/verification-check.ts)
+    const verificationCheck = verificationCheckValue(user.userId, userAgentId);
 
     await cookiesList.set({
       name: "verificationCheck",

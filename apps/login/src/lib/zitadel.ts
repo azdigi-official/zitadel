@@ -33,6 +33,8 @@ import { unstable_cacheLife as cacheLife } from "next/cache";
 import { getTranslations } from "next-intl/server";
 import { getUserAgent } from "./fingerprint";
 
+import { listSessionsByToken, requireSessionToken, verifySessionToken } from "./azdigi/session-token";
+import { getAllSessions } from "./cookies";
 import { createServiceForHost } from "./service";
 
 const useCache = process.env.DEBUG !== "true";
@@ -290,6 +292,9 @@ export async function setSession({
   lifetime: Duration;
 }>) {
   const sessionService: Client<typeof SessionService> = await createServiceForHost(SessionService, serviceConfig);
+  // AZDIGI: Zitadel updates a session for its creator whatever the token and returns a new, valid token; prove the
+  // token first, or a cookie naming someone else's session id would be handed that session
+  await verifySessionToken((request, options) => sessionService.getSession(request, options), sessionId, sessionToken);
 
   return sessionService.setSession(
     {
@@ -312,6 +317,8 @@ export async function getSession({
   sessionId: string;
   sessionToken: string;
 }>) {
+  // AZDIGI: without a token Zitadel returns any session to the login's service user (lib/azdigi/session-token.ts)
+  requireSessionToken(sessionToken);
   const sessionService: Client<typeof SessionService> = await createServiceForHost(SessionService, serviceConfig);
 
   return sessionService.getSession({ sessionId, sessionToken }, {});
@@ -326,6 +333,8 @@ export async function deleteSession({
   sessionToken: string;
 }>) {
   const sessionService: Client<typeof SessionService> = await createServiceForHost(SessionService, serviceConfig);
+  // AZDIGI: Zitadel ends a session for its creator whatever the token; prove the token first
+  await verifySessionToken((request, options) => sessionService.getSession(request, options), sessionId, sessionToken);
 
   return sessionService.deleteSession({ sessionId, sessionToken }, {});
 }
@@ -337,19 +346,14 @@ type ListSessionsCommand = WithServiceConfig<{
 export async function listSessions({ serviceConfig, ids }: ListSessionsCommand) {
   const sessionService: Client<typeof SessionService> = await createServiceForHost(SessionService, serviceConfig);
 
-  return sessionService.listSessions(
-    {
-      queries: [
-        {
-          query: {
-            case: "idsQuery",
-            value: { ids },
-          },
-        },
-      ],
-    },
-    {},
+  // AZDIGI: listing by id returns anyone's session to the login's service user. Every caller passes ids taken from the
+  // browser's cookie, so each session is read with that cookie's token instead and dropped when Zitadel rejects it.
+  const sessions = await listSessionsByToken(
+    (request, options) => sessionService.getSession(request, options),
+    ids,
+    await getAllSessions(),
   );
+  return { sessions };
 }
 
 export type AddHumanUserData = WithServiceConfig<{

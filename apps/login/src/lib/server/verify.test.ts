@@ -48,6 +48,9 @@ import { getSessionCookieByLoginName } from "../cookies";
 import { createSessionAndUpdateCookie } from "./cookie";
 import { cookies } from "next/headers";
 
+// AZDIGI: the verification-check cookie is keyed with a server secret; its own tests are in lib/azdigi
+vi.mock("@/lib/azdigi/verification-check", () => ({ verificationCheckValue: vi.fn(() => "server-keyed-value") }));
+
 describe("sendVerification", () => {
   let mockVerifyEmail: any;
   let mockGetUserByID: any;

@@ -1,9 +1,9 @@
+import { verificationCheckMatches } from "./azdigi/verification-check";
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import { checkMFAFactors, shouldEnforceMFA } from "./verify-helper";
 import { AuthenticationMethodType } from "@zitadel/proto/zitadel/user/v2/user_service_pb";
 import { cookies } from "next/headers";
 import { getFingerprintIdCookie } from "./fingerprint";
-import crypto from "crypto";
 
 // Mock function to create timestamps - following the same pattern as session.test.ts
 function createMockTimestamp(offsetMs = 3600000): any {
@@ -42,6 +42,11 @@ function createMockLoginSettings(overrides: any = {}): any {
     ...overrides,
   };
 }
+
+// AZDIGI: the cookie value is a server-keyed HMAC (lib/azdigi/verification-check.ts); here only the wiring is under test
+vi.mock("./azdigi/verification-check", () => ({
+  verificationCheckMatches: vi.fn((cookie: string | undefined) => cookie === "mockedhash123"),
+}));
 
 describe("shouldEnforceMFA", () => {
   let mockSession: any;
@@ -743,7 +748,8 @@ describe("checkUserVerification", () => {
 
     await checkUserVerification("user-456");
 
-    expect(crypto.createHash).toHaveBeenCalledWith("sha256");
+    // AZDIGI: the cookie is compared with a server-keyed value for this user and this browser's fingerprint
+    expect(verificationCheckMatches).toHaveBeenCalledWith("mockedhash123", "user-456", "fingerprint-456");
   });
 });
 
