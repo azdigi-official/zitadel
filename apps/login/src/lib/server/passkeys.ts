@@ -1,5 +1,7 @@
 "use server";
 
+import { ENROLMENT_REFUSED, mayEnrolSignInMethod } from "@/lib/azdigi/enrolment-guard";
+import { rememberCodeStartedRegistration, wasStartedWithCode } from "@/lib/azdigi/passkey-registration-proof";
 import {
   createPasskeyRegistrationLink,
   getLoginSettings,
@@ -9,7 +11,7 @@ import {
   registerPasskey,
   verifyPasskeyRegistration as zitadelVerifyPasskeyRegistration,
 } from "@/lib/zitadel";
-import { create, Duration, Timestamp, timestampDate } from "@zitadel/client";
+import { create, Duration } from "@zitadel/client";
 import { Session } from "@zitadel/proto/zitadel/session/v2/session_pb";
 import { Checks, ChecksSchema, GetSessionResponse } from "@zitadel/proto/zitadel/session/v2/session_service_pb";
 import {
@@ -41,20 +43,6 @@ type RegisterPasskeyCommand = {
   code?: string;
   codeId?: string;
 };
-
-function isSessionValid(session: Partial<Session>): {
-  valid: boolean;
-  verifiedAt?: Timestamp;
-} {
-  const validPassword = session?.factors?.password?.verifiedAt;
-  const validPasskey = session?.factors?.webAuthN?.verifiedAt;
-  const stillValid = session.expirationDate ? timestampDate(session.expirationDate) > new Date() : true;
-
-  const verifiedAt = validPassword || validPasskey;
-  const valid = !!((validPassword || validPasskey) && stillValid);
-
-  return { valid, verifiedAt };
-}
 
 export async function registerPasskeyLink(
   command: RegisterPasskeyCommand,
@@ -88,7 +76,9 @@ export async function registerPasskeyLink(
 
     currentUserId = session.session.factors.user.id;
 
-    const sessionValid = isSessionValid(session.session);
+    // AZDIGI: only a session the login policy accepts may add a passkey (lib/azdigi/enrolment-guard.ts); upstream
+    // accepted any session with a password, which let a known password enrol a passkey past the forced second factor
+    const sessionValid = { valid: await mayEnrolSignInMethod({ serviceConfig, session: session.session }) };
 
     if (!sessionValid.valid) {
       const authmethods = await listAuthenticationMethodTypes({ serviceConfig, userId: currentUserId });
@@ -173,7 +163,12 @@ export async function registerPasskeyLink(
     throw new Error("Could not determine user");
   }
 
-  return registerPasskey({ serviceConfig, userId: currentUserId, code: registerCode, domain: hostname });
+  const registration = await registerPasskey({ serviceConfig, userId: currentUserId, code: registerCode, domain: hostname });
+  // AZDIGI: Zitadel accepted the emailed code; only this browser may finish this registration without a session
+  if (!command.sessionId && registration?.passkeyId) {
+    await rememberCodeStartedRegistration(currentUserId, registration.passkeyId);
+  }
+  return registration;
 }
 
 export async function verifyPasskeyRegistration(command: VerifyPasskeyCommand) {
@@ -215,10 +210,25 @@ export async function verifyPasskeyRegistration(command: VerifyPasskeyCommand) {
       throw new Error("Could not get session");
     }
 
+    // AZDIGI: finishing a registration needs what starting it needs: a session the policy accepts, or (an account with
+    // no sign-in method yet) the browser that verified the account
+    if (!(await mayEnrolSignInMethod({ serviceConfig, session: session.session }))) {
+      const authmethods = await listAuthenticationMethodTypes({ serviceConfig, userId });
+      if (authmethods.authMethodTypes.length !== 0 || !(await checkUserVerification(userId))) {
+        throw new Error(ENROLMENT_REFUSED);
+      }
+    }
+
     currentUserId = userId;
   } else {
     // UserId-based flow
     currentUserId = command.userId!;
+
+    // AZDIGI: without a session, only a registration this browser started with the emailed code
+    if (!(await wasStartedWithCode(currentUserId, command.passkeyId))) {
+      console.warn("[azdigi] passkey registration refused: not started with a registration code in this browser", { userId: currentUserId });
+      throw new Error(ENROLMENT_REFUSED);
+    }
 
     // Verify user exists
     const userResponse = await getUserByID({ serviceConfig, userId: currentUserId });

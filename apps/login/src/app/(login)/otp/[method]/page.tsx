@@ -149,9 +149,17 @@ export default async function Page(props: {
             <span><Translated i18nKey="verify.emailVerifiedTitle" namespace="otp" /></span>
           </div>
         )}
+        {/* AZDIGI: arriving from the authenticator set-up (its own code could not complete the sign-in): say what
+            happened and why a code is asked again */}
+        {method === "time-based" && searchParams.afterSetup === "true" && (
+          <div role="status" data-testid="totp-after-setup" className="flex items-start gap-3 rounded-lg border border-green-600/20 bg-green-50 p-4 text-green-800 dark:bg-green-950/30 dark:text-green-200">
+            <CheckCircleIcon aria-hidden="true" className="h-5 w-5 shrink-0" />
+            <span><Translated i18nKey="verify.totpAfterSetupTitle" namespace="otp" /></span>
+          </div>
+        )}
         {method === "time-based" && (
           <p className="ztdl-p">
-            <Translated i18nKey="verify.totpDescription" namespace="otp" />
+            <Translated i18nKey={searchParams.afterSetup === "true" ? "verify.totpAfterSetupDescription" : "verify.totpDescription"} namespace="otp" />
           </p>
         )}
         {method === "sms" && (

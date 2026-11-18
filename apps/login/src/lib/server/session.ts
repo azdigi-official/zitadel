@@ -54,6 +54,21 @@ export async function skipMFAAndContinueWithNextUrl({
 
   const loginSettings = await getLoginSettings({ serviceConfig, organization: organization });
 
+  // AZDIGI: "skip" is recorded on the user, so it is the user of this browser's own signed-in session, never an id
+  // taken from the request
+  const cookie = sessionId
+    ? await getSessionCookieById({ sessionId, organization }).catch(() => undefined)
+    : loginName
+      ? await getSessionCookieByLoginName({ loginName, organization }).catch(() => undefined)
+      : undefined;
+  const own = cookie
+    ? await getSession({ serviceConfig, sessionId: cookie.id, sessionToken: cookie.token }).then((r) => r?.session, () => undefined)
+    : undefined;
+  if (!own?.factors?.user?.id || own.factors.user.id !== userId || !hasVerifiedFirstFactor(own)) {
+    console.warn("[azdigi] skip of the second-factor set-up refused: not this browser's signed-in user", { userId });
+    return { error: "Could not skip: sign in first." };
+  }
+
   await humanMFAInitSkipped({ serviceConfig, userId });
 
   if (requestId && sessionId) {

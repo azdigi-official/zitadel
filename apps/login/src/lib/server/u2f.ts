@@ -1,5 +1,6 @@
 "use server";
 
+import { ENROLMENT_REFUSED, mayEnrolSignInMethod } from "@/lib/azdigi/enrolment-guard";
 import { getSession, registerU2F, verifyU2FRegistration } from "@/lib/zitadel";
 import { create } from "@zitadel/client";
 import { VerifyU2FRegistrationRequestSchema } from "@zitadel/proto/zitadel/user/v2/user_service_pb";
@@ -47,6 +48,11 @@ export async function addU2F(command: RegisterU2FCommand) {
     return { error: "Could not get session" };
   }
 
+  // AZDIGI: a security key can satisfy the second factor, so only a session the policy accepts may add one
+  if (!(await mayEnrolSignInMethod({ serviceConfig, session: session.session }))) {
+    return { error: ENROLMENT_REFUSED };
+  }
+
   return registerU2F({ serviceConfig, userId, domain: hostname });
 }
 
@@ -77,6 +83,10 @@ export async function verifyU2F(command: VerifyU2FCommand) {
 
   if (!userId) {
     return { error: "Could not get session" };
+  }
+
+  if (!(await mayEnrolSignInMethod({ serviceConfig, session: session?.session }))) {
+    return { error: ENROLMENT_REFUSED };
   }
 
   const request = create(VerifyU2FRegistrationRequestSchema, {

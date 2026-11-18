@@ -5,6 +5,7 @@ import { DynamicTheme } from "@/components/dynamic-theme";
 import { TotpRegister } from "@/components/totp-register";
 import { Translated } from "@/components/translated";
 import { UserAvatar } from "@/components/user-avatar";
+import { mayEnrolSignInMethod } from "@/lib/azdigi/enrolment-guard";
 import { hasVerifiedFirstFactor } from "@/lib/azdigi/policy";
 import { getServiceConfig } from "@/lib/service-url";
 import { loadMostRecentSession } from "@/lib/session";
@@ -42,7 +43,10 @@ export default async function Page(props: {
   if (session && session.factors?.user?.id) {
     // AZDIGI: enrolling a factor needs a session that already proved the user (password, passkey or IDP); a session
     // with only a user check must not be able to add a second factor
-    if (!hasVerifiedFirstFactor(session)) {
+    // An authenticator can satisfy the second factor on its own: it needs a session the policy accepts, or the first
+    // set-up (lib/azdigi/enrolment-guard.ts). Email and SMS codes go to the user's own verified address.
+    const allowed = method === "time-based" ? await mayEnrolSignInMethod({ serviceConfig, session }) : hasVerifiedFirstFactor(session);
+    if (!allowed) {
       console.warn("[azdigi] factor enrolment refused: session has no verified first factor", {
         userId: session.factors.user.id,
         organizationId: session.factors.user.organizationId,

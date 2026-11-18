@@ -1,6 +1,7 @@
 "use client";
 
 import { completeFlowOrGetUrl, handleServerActionResponse } from "@/lib/client";
+import { finishSignInWithSetupCode } from "@/components/azdigi/totp-setup-finish";
 import { verifyTOTP } from "@/lib/server/verify";
 import { LoginSettings } from "@zitadel/proto/zitadel/settings/v2/login_settings_pb";
 import Link from "next/link";
@@ -64,6 +65,11 @@ export function TotpRegister({ uri, loginName, sessionId, requestId, organizatio
             params.append("organization", organization);
           }
 
+          // AZDIGI: the code just entered also completes the sign-in; the code screen is only the fallback, and says why
+          if (await finishSignInWithSetupCode({ code: values.code, loginName, sessionId, organization, requestId, loginSettings, router, setSamlData, setError })) {
+            return;
+          }
+          params.append("afterSetup", "true");
           return router.push(`/otp/time-based?` + params);
         } else {
           if (requestId && sessionId) {

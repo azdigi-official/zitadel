@@ -48,6 +48,9 @@ export async function verifySessionToken<S>(getSession: SessionReader<S>, sessio
   return response.session;
 }
 
+/** how many of a browser's sessions are read back per request; the cookie puts the newest first */
+export const MAX_SESSIONS_READ = 20;
+
 /**
  * The sessions among `ids` that this browser really holds: each needs a cookie with a token Zitadel accepts for it.
  * Replaces listing by id, which would return anyone's session. A session that is gone or whose token is rejected is
@@ -63,8 +66,9 @@ export async function listSessionsByToken<S>(
   for (const cookie of cookies) {
     if (typeof cookie?.id === "string") tokens.set(cookie.id, cookie.token);
   }
+  // the cookie is written by the browser: a stuffed one must not turn one request into hundreds of reads
   const found = await Promise.all(
-    Array.from(new Set(ids)).map(async (id) => {
+    Array.from(new Set(ids)).slice(0, MAX_SESSIONS_READ).map(async (id) => {
       const token = tokens.get(id);
       if (!isSessionToken(token)) return undefined;
       try {

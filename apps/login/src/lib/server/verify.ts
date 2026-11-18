@@ -20,7 +20,7 @@ import { ChecksSchema } from "@zitadel/proto/zitadel/session/v2/session_service_
 import { AuthenticationMethodType } from "@zitadel/proto/zitadel/user/v2/user_service_pb";
 import { cookies, headers } from "next/headers";
 import { isOtpFirstOrg } from "../azdigi/org-lookup";
-import { hasVerifiedFirstFactor } from "../azdigi/policy";
+import { ENROLMENT_REFUSED, mayEnrolSignInMethod } from "../azdigi/enrolment-guard";
 import { completeFlowOrGetUrl } from "../client";
 import { getSessionCookieByLoginName } from "../cookies";
 import { getOrSetFingerprintId } from "../fingerprint";
@@ -41,17 +41,14 @@ export async function verifyTOTP(code: string, loginName?: string, organization?
       loginName,
       organization,
     },
-  }).then((session) => {
+  }).then(async (session) => {
     if (!session?.factors?.user?.id) {
       throw Error("No user id found in session.");
     }
-    // AZDIGI: enrolling a factor needs a session that already proved the user (password, passkey or IDP)
-    if (!hasVerifiedFirstFactor(session)) {
-      console.warn("[azdigi] factor enrolment refused: session has no verified first factor", {
-        userId: session.factors.user.id,
-        organizationId: session.factors.user.organizationId,
-      });
-      throw Error("Sign in before setting up a second factor.");
+    // AZDIGI: an authenticator can satisfy the second factor, so only a session the policy accepts may add one (or
+    // the first set-up after a first factor): lib/azdigi/enrolment-guard.ts
+    if (!(await mayEnrolSignInMethod({ serviceConfig, session }))) {
+      throw Error(ENROLMENT_REFUSED);
     }
     return verifyTOTPRegistration({ serviceConfig, code, userId: session.factors.user.id });
   });

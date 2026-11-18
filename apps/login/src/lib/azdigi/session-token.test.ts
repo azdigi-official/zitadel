@@ -78,6 +78,13 @@ describe("listing only the sessions this browser holds", () => {
     expect(JSON.stringify(out)).not.toContain("victim-user");
   });
 
+  test("a cookie stuffed with sessions is read only up to a small number, newest (first) kept", async () => {
+    const ids = ["mine", ...Array.from({ length: 150 }, (_, i) => `x${i}`)];
+    const out = await listSessionsByToken(getSession, ids, ids.map((id) => ({ id, token: id === "mine" ? "t-mine" : "x" })));
+    expect(out).toEqual([{ id: "mine", user: "me" }]);
+    expect(getSession.mock.calls.length).toBe(20);
+  });
+
   test("an id without any cookie is never looked up", async () => {
     expect(await listSessionsByToken(getSession, ["victim"], [])).toEqual([]);
     expect(getSession).not.toHaveBeenCalled();

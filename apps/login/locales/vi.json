@@ -248,6 +248,8 @@
       "required": {
         "code": "Trường này là bắt buộc"
       },
+      "totpAfterSetupTitle": "Đã thiết lập ứng dụng xác thực",
+      "totpAfterSetupDescription": "Để hoàn tất đăng nhập, hãy mở lại ứng dụng xác thực và nhập mã đang hiển thị (mã đổi mỗi 30 giây).",
       "emailVerifiedTitle": "Email đã được xác minh thành công",
       "afterVerificationDescription": "Bước tiếp theo: nhập mã đăng nhập mới được gửi tới email của bạn để hoàn tất đăng nhập. Mã này khác với mã xác minh email vừa dùng.",
       "firstFactorTitle": "Đăng nhập bằng mã",
