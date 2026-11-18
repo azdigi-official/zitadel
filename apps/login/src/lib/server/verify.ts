@@ -290,21 +290,3 @@ export async function resendVerification(command: resendVerifyEmailCommand) {
       });
 }
 
-type SendEmailCommand = {
-  userId: string;
-  urlTemplate: string;
-};
-
-export async function sendEmailCode(command: SendEmailCommand) {
-  const _headers = await headers();
-  const { serviceConfig } = getServiceConfig(_headers);
-
-  return zitadelSendEmailCode({ serviceConfig, userId: command.userId, urlTemplate: command.urlTemplate });
-}
-
-export async function sendInviteEmailCode(command: SendEmailCommand) {
-  const _headers = await headers();
-  const { serviceConfig } = getServiceConfig(_headers);
-
-  return createInviteCode({ serviceConfig, userId: command.userId, urlTemplate: command.urlTemplate });
-}

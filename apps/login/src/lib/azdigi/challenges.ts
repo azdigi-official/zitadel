@@ -1,6 +1,21 @@
 import { create } from "@zitadel/client";
 import { RequestChallenges, RequestChallengesSchema } from "@zitadel/proto/zitadel/session/v2/challenge_pb";
 
+/**
+ * Challenges as they may reach Zitadel: a code is always SENT to the user, never returned to the caller. Whoever gets
+ * the code back holds the factor; nothing in the login needs it.
+ */
+export function withoutReturnedCodes(challenges: RequestChallenges | undefined): RequestChallenges | undefined {
+  if (!challenges) {
+    return undefined;
+  }
+  const safe: Record<string, unknown> = {};
+  if (challenges.webAuthN) safe.webAuthN = challenges.webAuthN;
+  if (challenges.otpSms) safe.otpSms = { returnCode: false };
+  if (challenges.otpEmail && challenges.otpEmail.deliveryType.case === "sendCode") safe.otpEmail = challenges.otpEmail;
+  return Object.keys(safe).length ? create(RequestChallengesSchema, safe) : undefined;
+}
+
 /** Server-built challenges: sendCode with our own link template, never returnCode, WebAuthn domain = login host. */
 export function buildServerChallenges(
   requested: RequestChallenges | undefined,

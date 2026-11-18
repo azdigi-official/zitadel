@@ -1,5 +1,8 @@
-"use server";
+// AZDIGI: NOT a server-action module (see lib/cookies.ts). Published as actions, these functions let anyone create or
+// update a session with challenges of their choosing and returned Zitadel's answer, including an OTP code requested
+// with returnCode: a sign-in as any account that signs in with an emailed code.
 
+import { withoutReturnedCodes } from "@/lib/azdigi/challenges";
 import { addSessionToCookie, updateSessionCookie } from "@/lib/cookies";
 import {
   createSessionForUserIdAndIdpIntent,
@@ -64,7 +67,7 @@ export async function createSessionAndUpdateCookie(command: {
     serviceConfig,
     checks: command.checks,
     lifetime: sessionLifetime,
-    challenges: command.challenges,
+    challenges: withoutReturnedCodes(command.challenges),
   });
 
   if (createdSession) {
@@ -208,7 +211,7 @@ export async function setSessionAndUpdateCookie(command: {
     serviceConfig,
     sessionId: command.recentCookie.id,
     sessionToken: command.recentCookie.token,
-    challenges: command.challenges,
+    challenges: withoutReturnedCodes(command.challenges),
     checks: command.checks,
     lifetime: command.lifetime,
   })

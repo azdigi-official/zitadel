@@ -1,8 +1,9 @@
-"use server";
+// AZDIGI: NOT a server-action module. Every export of a "use server" file is published by Next as an endpoint anyone can
+// POST to; these helpers read and write the session cookie and must only run from server code (see
+// scripts/azdigi/check-server-actions.mjs). The language switcher has its own action: lib/server/azdigi/language.ts.
 
 import { timestampDate, timestampFromMs } from "@zitadel/client";
 import { cookies } from "next/headers";
-import { LANGUAGE_COOKIE_NAME } from "./i18n";
 
 // TODO: improve this to handle overflow
 const MAX_COOKIE_SIZE = 2048;
@@ -41,17 +42,6 @@ async function setSessionHttpOnlyCookie<T>(sessions: SessionCookie<T>[], iFrameE
     path: "/",
     sameSite: resolvedSameSite,
     secure: process.env.NODE_ENV === "production",
-  });
-}
-
-export async function setLanguageCookie(language: string) {
-  const cookiesList = await cookies();
-
-  await cookiesList.set({
-    name: LANGUAGE_COOKIE_NAME,
-    value: language,
-    httpOnly: true,
-    path: "/",
   });
 }
 

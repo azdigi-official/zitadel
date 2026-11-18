@@ -12,7 +12,7 @@ import { getServiceConfig } from "../service-url";
 import { checkEmailVerification, checkMFAFactors } from "../verify-helper";
 import { getOrSetFingerprintId } from "../fingerprint";
 import { completeFlowOrGetUrl } from "../client";
-import { resolveOrgIdByName } from "../azdigi/org-lookup";
+import { registrationOrgId } from "../azdigi/org-lookup";
 
 type RegisterUserCommand = {
   email: string;
@@ -25,11 +25,6 @@ type RegisterUserCommand = {
   /** AZDIGI: "otp" registers without password or passkey; the email code becomes the first factor after verification */
   method?: "otp" | "passkey" | "password";
 };
-
-/** The organisation self-registration lands in (compose AZDIGI_REGISTER_ORG_NAME, default "AZDIGI Customers"). */
-export async function registrationOrgId(serviceConfig: Parameters<typeof getLoginSettings>[0]["serviceConfig"]) {
-  return resolveOrgIdByName(serviceConfig, process.env.AZDIGI_REGISTER_ORG_NAME || "AZDIGI Customers");
-}
 
 export type RegisterUserResponse = {
   userId: string;

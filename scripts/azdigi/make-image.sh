@@ -13,6 +13,7 @@ LOG="${AZDIGI_BUILD_LOG:-/tmp/azdigi-login-image.log}"
   # the login target depends on generate; with AZDIGI_SKIP_GENERATE=1 that dependency is not re-run either
   EXTRA=""; [ "${AZDIGI_SKIP_GENERATE:-0}" = "1" ] && EXTRA="--excludeTaskDependencies"
   echo "== next build"; set -a; . apps/login/azdigi-image.vars; set +a; time corepack pnpm nx run @zitadel/login:build --skip-nx-cache $EXTRA
+  echo "== server actions"; node scripts/azdigi/check-server-actions.mjs
   echo "== docker build"; time docker build -t "$TAG" apps/login
 } >> "$LOG" 2>&1
 echo "image $TAG built; log: $LOG"

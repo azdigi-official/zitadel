@@ -97,3 +97,8 @@ export async function resolveOrgIdByName(serviceConfig: ServiceConfig, name: str
 export function clearOrgNameCache() {
   delete byName.__azdigiOrgIdsByName;
 }
+
+/** The organisation self-registration lands in (compose AZDIGI_REGISTER_ORG_NAME, default "AZDIGI Customers"). */
+export async function registrationOrgId(serviceConfig: ServiceConfig) {
+  return resolveOrgIdByName(serviceConfig, process.env.AZDIGI_REGISTER_ORG_NAME || "AZDIGI Customers");
+}

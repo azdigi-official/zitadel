@@ -4,7 +4,7 @@ import { RegisterForm } from "@/components/register-form";
 import { SignInWithIdp } from "@/components/sign-in-with-idp";
 import { Translated } from "@/components/translated";
 import { isOtpFirstOrg } from "@/lib/azdigi/org-lookup";
-import { registrationOrgId } from "@/lib/server/register";
+import { registrationOrgId } from "@/lib/azdigi/org-lookup";
 import { getServiceConfig } from "@/lib/service-url";
 import {
   getActiveIdentityProviders,

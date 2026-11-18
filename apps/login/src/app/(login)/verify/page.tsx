@@ -6,7 +6,7 @@ import { VerifyForm } from "@/components/verify-form";
 import { UNKNOWN_USER_ID } from "@/lib/constants";
 import { claimVerifyPageSend } from "@/lib/azdigi/rate-limit";
 import { getPublicHostWithProtocol } from "@/lib/server/host";
-import { sendEmailCode, sendInviteEmailCode } from "@/lib/server/verify";
+import { sendEmailCode, sendInviteEmailCode } from "@/lib/azdigi/verification-mail";
 import { getServiceConfig } from "@/lib/service-url";
 import { loadMostRecentSession } from "@/lib/session";
 import { getBrandingSettings, getLoginSettings, getUserByID, searchUsers } from "@/lib/zitadel";

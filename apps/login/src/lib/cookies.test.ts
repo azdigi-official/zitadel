@@ -10,8 +10,8 @@ import {
   getAllSessionCookieIds,
   getAllSessions,
   getMostRecentCookieWithLoginname,
-  setLanguageCookie,
 } from "./cookies";
+import { setLanguageCookie } from "./server/azdigi/language";
 
 // Mock dependencies
 vi.mock("next/headers", () => ({
@@ -52,6 +52,13 @@ describe("cookies", () => {
         httpOnly: true,
         path: "/",
       });
+    });
+
+    // AZDIGI: this is the one cookie a browser can ask for directly; only a supported language is stored
+    it("ignores a value that is not a supported language", async () => {
+      await setLanguageCookie("<script>");
+      await setLanguageCookie(undefined as unknown as string);
+      expect(mockCookies.set).not.toHaveBeenCalled();
     });
   });
 

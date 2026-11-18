@@ -1,6 +1,6 @@
 "use client";
 
-import { setLanguageCookie } from "@/lib/cookies";
+import { setLanguageCookie } from "@/lib/server/azdigi/language";
 import { Lang, LANGS } from "@/lib/i18n";
 import { getThemeConfig, getComponentRoundness, APPEARANCE_STYLES } from "@/lib/theme";
 import { Listbox, ListboxButton, ListboxOption, ListboxOptions } from "@headlessui/react";

@@ -7,7 +7,7 @@ import { registerUser, registerUserAndLinkToIDP } from "./register";
 vi.mock("next/headers", () => ({ headers: vi.fn(async () => ({ get: () => null })), cookies: vi.fn(async () => ({ set: vi.fn() })) }));
 vi.mock("next-intl/server", () => ({ getTranslations: vi.fn(async () => (key: string) => key) }));
 vi.mock("../service-url", () => ({ getServiceConfig: vi.fn(() => ({ serviceConfig: { baseUrl: "http://api" } })) }));
-vi.mock("../azdigi/org-lookup", () => ({ resolveOrgIdByName: vi.fn() }));
+vi.mock("../azdigi/org-lookup", () => ({ registrationOrgId: vi.fn() }));
 vi.mock("../fingerprint", () => ({ getOrSetFingerprintId: vi.fn(async () => "fp") }));
 vi.mock("../client", () => ({ completeFlowOrGetUrl: vi.fn(async () => ({ redirect: "/signedin" })) }));
 vi.mock("../verify-helper", () => ({ checkEmailVerification: vi.fn(), checkMFAFactors: vi.fn() }));
@@ -26,7 +26,7 @@ const base = { email: "new@example.test", firstName: "New", lastName: "User", or
 describe("registerUser (AZDIGI)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(orgLookup.resolveOrgIdByName).mockResolvedValue("customers-id");
+    vi.mocked(orgLookup.registrationOrgId).mockResolvedValue("customers-id");
     vi.mocked(zitadel.getLoginSettings).mockResolvedValue({ allowRegister: true } as any);
     vi.mocked(zitadel.addHumanUser).mockResolvedValue({ userId: "u1" } as any);
     vi.mocked(cookie.createSessionAndUpdateCookie).mockResolvedValue({
@@ -50,7 +50,7 @@ describe("registerUser (AZDIGI)", () => {
   test("refuses when registration is off or the organisation cannot be resolved", async () => {
     vi.mocked(zitadel.getLoginSettings).mockResolvedValue({ allowRegister: false } as any);
     expect(await registerUser({ ...base, method: "otp" })).toEqual({ error: "disabled.description" });
-    vi.mocked(orgLookup.resolveOrgIdByName).mockResolvedValue(undefined);
+    vi.mocked(orgLookup.registrationOrgId).mockResolvedValue(undefined);
     expect(await registerUser({ ...base, method: "otp" })).toEqual({ error: "disabled.description" });
     expect(zitadel.addHumanUser).not.toHaveBeenCalled();
   });
@@ -65,7 +65,7 @@ describe("registerUser (AZDIGI)", () => {
     expect(await registerUserAndLinkToIDP({ ...base, email, idpId: "i", idpUserId: "u", idpUserName: "n" } as any)).toEqual({
       error: "errors.whitespace",
     });
-    expect(orgLookup.resolveOrgIdByName).not.toHaveBeenCalled();
+    expect(orgLookup.registrationOrgId).not.toHaveBeenCalled();
     expect(zitadel.addHumanUser).not.toHaveBeenCalled();
   });
 });
