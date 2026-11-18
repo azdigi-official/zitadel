@@ -1,3 +1,4 @@
+import { navigateAfterAction } from "./azdigi/navigate";
 import { completeAuthFlow } from "./server/auth-flow";
 import { accountUrl } from "./azdigi/account-url";
 
@@ -128,7 +129,8 @@ export function handleServerActionResponse(
   }
 
   if ("redirect" in response && response.redirect) {
-    router.push(response.redirect);
+    // AZDIGI: lib/azdigi/navigate.ts (a push issued while the server action is still being applied can be dropped)
+    navigateAfterAction(router, response.redirect);
     return true;
   }
 
