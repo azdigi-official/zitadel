@@ -14,13 +14,8 @@ LOG="${AZDIGI_BUILD_LOG:-/tmp/azdigi-login-image.log}"
   # the login target depends on generate; with AZDIGI_SKIP_GENERATE=1 that dependency is not re-run either
   EXTRA=""; [ "${AZDIGI_SKIP_GENERATE:-0}" = "1" ] && EXTRA="--excludeTaskDependencies"
   echo "== next build"; set -a; . apps/login/azdigi-image.vars; set +a
-  # Next 16.4.3 stops every other run with "SecurityFatalError" (its advisory notice) after compiling; one retry, and only
-  # for that error, so a real compile or allowlist failure still fails the script
-  if ! time corepack pnpm nx run @zitadel/login:build --skip-nx-cache $EXTRA; then
-    grep -q "SecurityFatalError" "$LOG" || exit 1
-    echo "== next build: retry after SecurityFatalError"
-    time corepack pnpm nx run @zitadel/login:build --skip-nx-cache $EXTRA
-  fi
+  # no retry: a "SecurityFatalError" stop means the pinned Next has a published advisory, so upgrade Next instead
+  time corepack pnpm nx run @zitadel/login:build --skip-nx-cache $EXTRA
   echo "== docker build"; time docker build -t "$TAG" apps/login
 } >> "$LOG" 2>&1
 echo "image $TAG built; log: $LOG"
