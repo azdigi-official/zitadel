@@ -1,3 +1,4 @@
+import { SecondFactorFirst } from "@/components/azdigi/second-factor-first";
 import { RegisterPasskey } from "@/components/register-passkey";
 import { Translated } from "@/components/translated";
 import { UserAvatar } from "@/components/user-avatar";
@@ -14,6 +15,8 @@ vi.mock("@/lib/server/enrollment-guard", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/server/enrollment-guard")>()),
   getSetupAuthorizationError: vi.fn(),
 }));
+
+vi.mock("@/lib/azdigi/second-factor-step", () => ({ secondFactorStep: vi.fn() }));
 
 // AZDIGI: the page asks lib/azdigi/enrolment-guard.ts (the organisation's policy plus upstream's rules, tested there)
 vi.mock("@/lib/azdigi/enrolment-guard", () => ({
@@ -79,8 +82,8 @@ describe("passkey set page", () => {
     expect(findElements(result, RegisterPasskey)).toHaveLength(1);
   });
 
+  // AZDIGI: "second factor first" offers the way forward instead, see below
   test.each([
-    ["You have to verify your second factor first", "secondFactorRequired"],
     ["Passkeys are not allowed", "authenticatorNotAllowed"],
     ["You have to authenticate or have a valid User Verification Check", "sessionExpired"],
   ])("hides the registration and shows a translated error for %s", async (error, i18nKey) => {
@@ -91,6 +94,36 @@ describe("passkey set page", () => {
     expect(findElements(result, RegisterPasskey)).toHaveLength(0);
     const messages = findElements(result, Translated).map((element) => element.props);
     expect(messages).toContainEqual(expect.objectContaining({ i18nKey, namespace: "error" }));
+  });
+
+  test.each([
+    [{}, "/passkey/set"],
+    [{ prompt: "true" }, "/passkey/set?prompt=true"],
+  ])("AZDIGI: refused only for the second factor, it offers that step and comes back here (%j)", async (extra, returnTo) => {
+    const stepLib = await import("@/lib/azdigi/second-factor-step");
+    const step = { kind: "emailCode", href: "/otp/email?loginName=user%40example.com" } as const;
+    vi.mocked(azdigiGuard.enrolmentAuthorizationError).mockResolvedValue("You have to verify your second factor first");
+    vi.mocked(stepLib.secondFactorStep).mockResolvedValue(step);
+
+    const result = await Page({
+      searchParams: Promise.resolve({ loginName: "user@example.com", requestId: "oidc_1", ...extra }),
+    });
+
+    expect(findElements(result, RegisterPasskey)).toHaveLength(0);
+    expect(stepLib.secondFactorStep).toHaveBeenCalledWith(
+      expect.objectContaining({ session, returnTo, requestId: "oidc_1" }),
+    );
+    expect(findElements(result, SecondFactorFirst).map((element) => element.props.step)).toEqual([step]);
+  });
+
+  test("AZDIGI: other refusals offer no second-factor step", async () => {
+    const stepLib = await import("@/lib/azdigi/second-factor-step");
+    vi.mocked(azdigiGuard.enrolmentAuthorizationError).mockResolvedValue("Passkeys are not allowed");
+
+    const result = await Page({ searchParams: Promise.resolve({ loginName: "user@example.com" }) });
+
+    expect(stepLib.secondFactorStep).not.toHaveBeenCalled();
+    expect(findElements(result, SecondFactorFirst)).toHaveLength(0);
   });
 
   test("leaves the emailed code flow to the code even if a session is in the browser", async () => {

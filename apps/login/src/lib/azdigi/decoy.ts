@@ -41,6 +41,37 @@ export async function withMinimumDuration<T>(run: () => Promise<T>, minMs = 900,
   }
 }
 
+/**
+ * Like withMinimumDuration, but only answers the predicate picks wait (the refusals). Used for the password step: a
+ * wrong password for a real account is checked by Zitadel (hashing, lockout settings, ~0.85 s measured 19/11/2026 on
+ * v4.20.5) while an unknown name is answered at once, so the refusal's timing told whether the account exists. A
+ * successful sign-in continues without the wait.
+ */
+export async function withMinimumDurationWhen<T>(
+  run: () => Promise<T>,
+  waitFor: (result: T) => boolean,
+  minMs = 1500,
+  jitterMs = 500,
+): Promise<T> {
+  const until = Date.now() + minMs + Math.random() * jitterMs;
+  let result: T;
+  try {
+    result = await run();
+  } catch (error) {
+    await sleepUntil(until);
+    throw error;
+  }
+  if (waitFor(result)) {
+    await sleepUntil(until);
+  }
+  return result;
+}
+
+async function sleepUntil(until: number) {
+  const left = until - Date.now();
+  if (left > 0) await new Promise((resolve) => setTimeout(resolve, left));
+}
+
 /** `/otp/email?…` exactly as a real customer without a password gets it, or undefined outside a customer context. */
 export async function decoyOtpRedirect(
   serviceConfig: ServiceConfig,

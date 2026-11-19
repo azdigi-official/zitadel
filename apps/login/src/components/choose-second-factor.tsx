@@ -9,10 +9,15 @@ type Props = {
   requestId?: string;
   organization?: string;
   userMethods: AuthenticationMethodType[];
+  returnTo?: string;
 };
 
-export function ChooseSecondFactor({ loginName, sessionId, requestId, organization, userMethods }: Props) {
+export function ChooseSecondFactor({ loginName, sessionId, requestId, organization, userMethods, returnTo }: Props) {
   const params = new URLSearchParams({});
+  // AZDIGI: the enrolment page to come back to after the factor (validated by the page, lib/azdigi/enrolment-return.ts)
+  if (returnTo) {
+    params.append("returnTo", returnTo);
+  }
 
   if (loginName) {
     params.append("loginName", loginName);

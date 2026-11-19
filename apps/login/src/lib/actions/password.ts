@@ -1,7 +1,7 @@
 "use server";
 
 import { completeFlowOrGetUrl } from "@/lib/actions/flow";
-import { hidingUnknownAccounts, withMinimumDuration } from "@/lib/azdigi/decoy";
+import { hidingUnknownAccounts, withMinimumDuration, withMinimumDurationWhen } from "@/lib/azdigi/decoy";
 import { estimateUnlockAt, orgKindFromSettings } from "@/lib/azdigi/lockout";
 import { isOtpFirstOrg } from "@/lib/azdigi/org-lookup";
 import { equalsIgnoreCase } from "@/lib/server/auth-utils";
@@ -158,9 +158,21 @@ export type UpdateSessionCommand = {
   requestId?: string;
 };
 
-export async function sendPassword(
-  command: UpdateSessionCommand,
-): Promise<{ error: string } | { redirect: string } | { samlData: { url: string; fields: Record<string, string> } }> {
+type SendPasswordResult =
+  { error: string } | { redirect: string } | { samlData: { url: string; fields: Record<string, string> } };
+
+/**
+ * AZDIGI: refusals take a minimum time (decoy.ts withMinimumDurationWhen) so a wrong password for a real account and
+ * one for an unknown name cannot be told apart by response time; a successful sign-in is not delayed.
+ */
+export async function sendPassword(command: UpdateSessionCommand): Promise<SendPasswordResult> {
+  return withMinimumDurationWhen(
+    () => sendPasswordNow(command),
+    (result) => !!result && "error" in result,
+  );
+}
+
+async function sendPasswordNow(command: UpdateSessionCommand): Promise<SendPasswordResult> {
   const _headers = await headers();
   const { serviceConfig } = getServiceConfig(_headers);
   const t = await getTranslations("password");

@@ -633,5 +633,27 @@
     },
     "signOut": "Đăng xuất",
     "continue": "Về ứng dụng"
+  },
+  "azdigiEnrol": {
+    "emailCode": {
+      "description": "Để thêm phương thức đăng nhập mới, hãy xác nhận bằng mã gửi tới email của bạn trước.",
+      "button": "Gửi mã qua email"
+    },
+    "phoneCode": {
+      "description": "Để thêm phương thức đăng nhập mới, hãy xác nhận bằng mã gửi tới điện thoại của bạn trước.",
+      "button": "Gửi mã qua điện thoại"
+    },
+    "totp": {
+      "description": "Để thêm phương thức đăng nhập mới, hãy xác nhận bằng mã từ ứng dụng xác thực của bạn trước.",
+      "button": "Nhập mã xác thực"
+    },
+    "u2f": {
+      "description": "Để thêm phương thức đăng nhập mới, hãy xác nhận bằng khoá bảo mật của bạn trước. Sau đó bạn sẽ quay về trang tài khoản.",
+      "button": "Dùng khoá bảo mật"
+    },
+    "choose": {
+      "description": "Để thêm phương thức đăng nhập mới, hãy xác thực lớp thứ hai của bạn trước.",
+      "button": "Xác thực lớp thứ hai"
+    }
   }
 }

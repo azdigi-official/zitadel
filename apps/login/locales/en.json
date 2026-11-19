@@ -633,5 +633,27 @@
     },
     "signOut": "Sign out",
     "continue": "Back to the application"
+  },
+  "azdigiEnrol": {
+    "emailCode": {
+      "description": "To add a new sign-in method, first confirm with the code sent to your email.",
+      "button": "Send me the code by email"
+    },
+    "phoneCode": {
+      "description": "To add a new sign-in method, first confirm with the code sent to your phone.",
+      "button": "Send me the code by phone"
+    },
+    "totp": {
+      "description": "To add a new sign-in method, first confirm with the code from your authenticator app.",
+      "button": "Enter the authenticator code"
+    },
+    "u2f": {
+      "description": "To add a new sign-in method, first confirm with your security key. You will then return to your account page.",
+      "button": "Use my security key"
+    },
+    "choose": {
+      "description": "To add a new sign-in method, first confirm with your second factor.",
+      "button": "Confirm my second factor"
+    }
   }
 }

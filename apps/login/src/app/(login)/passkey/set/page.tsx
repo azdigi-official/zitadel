@@ -1,11 +1,13 @@
 import { Alert, AlertType } from "@/components/alert";
+import { SecondFactorFirst } from "@/components/azdigi/second-factor-first";
 import { Button, ButtonVariants } from "@/components/button";
 import { DynamicTheme } from "@/components/dynamic-theme";
 import { RegisterPasskey } from "@/components/register-passkey";
 import { Translated } from "@/components/translated";
 import { UserAvatar } from "@/components/user-avatar";
 import { enrolmentAuthorizationError } from "@/lib/azdigi/enrolment-guard";
-import { setupErrorTranslationKey } from "@/lib/server/enrollment-guard";
+import { SecondFactorStep, secondFactorStep } from "@/lib/azdigi/second-factor-step";
+import { SECOND_FACTOR_REQUIRED_ERROR, setupErrorTranslationKey } from "@/lib/server/enrollment-guard";
 import { getServiceConfig } from "@/lib/server/service-url";
 import { loadMostRecentSession } from "@/lib/server/session";
 import { getBrandingSettings, getUserByID } from "@/lib/server/zitadel";
@@ -57,6 +59,17 @@ export default async function Page(props: { searchParams: Promise<Record<string 
       session,
       userId: session.factors.user.id,
       method: "passkey",
+    });
+  }
+
+  // AZDIGI: refused only because a configured second factor is not verified yet: offer that step, then come back here
+  let step: SecondFactorStep | undefined;
+  if (setupError === SECOND_FACTOR_REQUIRED_ERROR && session) {
+    step = await secondFactorStep({
+      serviceConfig,
+      session,
+      returnTo: prompt === "true" ? "/passkey/set?prompt=true" : "/passkey/set",
+      requestId,
     });
   }
 
@@ -141,7 +154,9 @@ export default async function Page(props: { searchParams: Promise<Record<string 
           </div>
         )}
 
-        {setupError && (
+        {setupError === SECOND_FACTOR_REQUIRED_ERROR && <SecondFactorFirst step={step} />}
+
+        {setupError && setupError !== SECOND_FACTOR_REQUIRED_ERROR && (
           <div className="py-4">
             <Alert>
               <Translated i18nKey={setupErrorTranslationKey(setupError)} namespace="error" />

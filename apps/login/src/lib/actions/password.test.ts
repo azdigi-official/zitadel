@@ -9,6 +9,7 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 vi.mock("@/lib/azdigi/decoy", () => ({
   hidingUnknownAccounts: async (_cfg: unknown, settings: unknown) => settings,
   withMinimumDuration: (run: () => Promise<unknown>) => run(),
+  withMinimumDurationWhen: (run: () => Promise<unknown>) => run(),
 }));
 vi.mock("@/lib/azdigi/org-lookup", () => ({ isOtpFirstOrg: vi.fn(async () => false) }));
 

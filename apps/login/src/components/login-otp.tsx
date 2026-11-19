@@ -3,6 +3,8 @@
 import { completeFlowOrGetUrl } from "@/lib/actions/flow";
 import { resetPassword } from "@/lib/actions/password";
 import { updateOrCreateSession } from "@/lib/actions/session";
+import { enrolmentReturnUrl } from "@/lib/azdigi/enrolment-return";
+import { navigateAfterAction } from "@/lib/azdigi/navigate";
 import { OtpChannel } from "@/lib/azdigi/otp-channel";
 import { handleServerActionResponse } from "@/lib/client-utils";
 import { create } from "@zitadel/client";
@@ -37,6 +39,8 @@ type Props = {
   altPasskey?: boolean;
   /** AZDIGI: channel choice (email · Zalo · SMS) when the user has a verified phone and SMS delivery is enabled */
   channels?: { current: OtpChannel; phoneMasked: string; available: OtpChannel[] };
+  /** AZDIGI: an enrolment page that asked for this second factor first; it is opened again once the code is verified */
+  returnTo?: string;
 };
 
 type Inputs = {
@@ -54,6 +58,7 @@ export function LoginOTP({
   altPassword = false,
   altPasskey = false,
   channels,
+  returnTo,
 }: Props) {
   const t = useTranslations("otp");
 
@@ -254,6 +259,23 @@ export function LoginOTP({
         setLoading(true);
         // Wait for 2 seconds to avoid eventual consistency issues with an OTP code being verified in the /login endpoint
         await new Promise((resolve) => setTimeout(resolve, 2000));
+
+        // AZDIGI: the second factor was asked for by an enrolment page: go back there (only a known enrolment path,
+        // rebuilt from its parts, lib/azdigi/enrolment-return.ts); the page checks the session again
+        const enrolmentUrl =
+          returnTo && response.factors?.user
+            ? enrolmentReturnUrl(returnTo, {
+                loginName: response.factors.user.loginName,
+                organization: response.factors.user.organizationId,
+                requestId,
+              })
+            : undefined;
+        if (enrolmentUrl) {
+          setLoading(false);
+          // a push issued while the action's result is still being applied can be dropped (lib/azdigi/navigate.ts)
+          navigateAfterAction(router, enrolmentUrl);
+          return;
+        }
 
         // Use unified approach that handles both OIDC/SAML and regular flows
         if (response.factors?.user) {

@@ -1,10 +1,12 @@
 import { Alert } from "@/components/alert";
+import { SecondFactorFirst } from "@/components/azdigi/second-factor-first";
 import { DynamicTheme } from "@/components/dynamic-theme";
 import { RegisterU2f } from "@/components/register-u2f";
 import { Translated } from "@/components/translated";
 import { UserAvatar } from "@/components/user-avatar";
 import { enrolmentAuthorizationError } from "@/lib/azdigi/enrolment-guard";
-import { setupErrorTranslationKey } from "@/lib/server/enrollment-guard";
+import { SecondFactorStep, secondFactorStep } from "@/lib/azdigi/second-factor-step";
+import { SECOND_FACTOR_REQUIRED_ERROR, setupErrorTranslationKey } from "@/lib/server/enrollment-guard";
 import { getServiceConfig } from "@/lib/server/service-url";
 import { loadMostRecentSession } from "@/lib/server/session";
 import { getBrandingSettings } from "@/lib/server/zitadel";
@@ -51,6 +53,17 @@ export default async function Page(props: { searchParams: Promise<Record<string 
     enrollmentAuthorized = !enrollmentError;
   }
 
+  // AZDIGI: refused only because a configured second factor is not verified yet: offer that step, then come back here
+  let step: SecondFactorStep | undefined;
+  if (enrollmentError === SECOND_FACTOR_REQUIRED_ERROR && sessionFactors) {
+    step = await secondFactorStep({
+      serviceConfig,
+      session: sessionFactors,
+      returnTo: checkAfter === "true" ? "/u2f/set?checkAfter=true" : "/u2f/set",
+      requestId,
+    });
+  }
+
   return (
     <DynamicTheme branding={branding}>
       <div className="flex flex-col items-center space-y-4">
@@ -73,7 +86,9 @@ export default async function Page(props: { searchParams: Promise<Record<string 
       </div>
 
       <div className="w-full">
-        {(!sessionFactors || !enrollmentAuthorized) && (
+        {enrollmentError === SECOND_FACTOR_REQUIRED_ERROR && <SecondFactorFirst step={step} />}
+
+        {(!sessionFactors || !enrollmentAuthorized) && enrollmentError !== SECOND_FACTOR_REQUIRED_ERROR && (
           <div className="py-4">
             <Alert>
               {/* the session may not set up U2F, or a loginName was provided but the session could not be resolved (cookie missing, invalid or expired) */}

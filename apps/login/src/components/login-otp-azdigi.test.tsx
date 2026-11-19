@@ -69,3 +69,40 @@ test.each([
   await act(async () => finish({ sessionId: "s1" }));
   await waitFor(() => expect(push).toHaveBeenCalledWith(expect.stringContaining(path + "?")));
 });
+
+test("a verified code asked for by an enrolment page goes back to that page, rebuilt from the known path", async () => {
+  const { completeFlowOrGetUrl } = await import("@/lib/actions/flow");
+  vi.mocked(updateOrCreateSession).mockResolvedValue({
+    sessionId: "s1",
+    factors: { user: { loginName: "khach@example.vn", organizationId: "customers" } },
+  } as any);
+  render(
+    <LoginOTP loginName="khach@example.vn" method="time-based" requestId="oidc_1" returnTo="/passkey/set?prompt=true" />,
+  );
+  fireEvent.change(screen.getByTestId("code-text-input"), { target: { value: "123456" } });
+  await waitFor(() => expect(screen.getByTestId("submit-button")).toBeEnabled());
+  fireEvent.click(screen.getByTestId("submit-button"));
+  await waitFor(
+    () =>
+      expect(push).toHaveBeenCalledWith(
+        "/passkey/set?prompt=true&loginName=khach%40example.vn&organization=customers&requestId=oidc_1",
+      ),
+    { timeout: 5_000 },
+  );
+  expect(completeFlowOrGetUrl).not.toHaveBeenCalled();
+});
+
+test("a way back that is not a known enrolment page is ignored: the flow continues as usual", async () => {
+  const { completeFlowOrGetUrl } = await import("@/lib/actions/flow");
+  vi.mocked(updateOrCreateSession).mockResolvedValue({
+    sessionId: "s1",
+    factors: { user: { loginName: "khach@example.vn", organizationId: "customers" } },
+  } as any);
+  vi.mocked(completeFlowOrGetUrl).mockResolvedValue({ redirect: "/account" } as any);
+  render(<LoginOTP loginName="khach@example.vn" method="time-based" returnTo="https://evil.example/passkey/set" />);
+  fireEvent.change(screen.getByTestId("code-text-input"), { target: { value: "123456" } });
+  await waitFor(() => expect(screen.getByTestId("submit-button")).toBeEnabled());
+  fireEvent.click(screen.getByTestId("submit-button"));
+  await waitFor(() => expect(completeFlowOrGetUrl).toHaveBeenCalled(), { timeout: 5_000 });
+  expect(push).not.toHaveBeenCalledWith(expect.stringContaining("evil"));
+});

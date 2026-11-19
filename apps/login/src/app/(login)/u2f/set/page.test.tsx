@@ -1,9 +1,11 @@
+import { SecondFactorFirst } from "@/components/azdigi/second-factor-first";
 import { RegisterU2f } from "@/components/register-u2f";
 import { Translated } from "@/components/translated";
 import { isValidElement, ReactElement, ReactNode } from "react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import Page from "./page";
 
+vi.mock("@/lib/azdigi/second-factor-step", () => ({ secondFactorStep: vi.fn() }));
 vi.mock("@/lib/server/zitadel", () => ({
   getBrandingSettings: vi.fn(),
 }));
@@ -76,8 +78,8 @@ describe("u2f set page", () => {
     expect(findElements(result, RegisterU2f)).toHaveLength(1);
   });
 
+  // AZDIGI: "second factor first" offers the way forward instead, see below
   test.each([
-    ["You have to verify your second factor first", "secondFactorRequired"],
     ["This second factor is not allowed", "authenticatorNotAllowed"],
     ["You have to authenticate or have a valid User Verification Check", "sessionExpired"],
   ])("hides the registration and shows a translated error for %s", async (error, i18nKey) => {
@@ -88,6 +90,19 @@ describe("u2f set page", () => {
     expect(findElements(result, RegisterU2f)).toHaveLength(0);
     const messages = findElements(result, Translated).map((element) => element.props);
     expect(messages).toContainEqual(expect.objectContaining({ i18nKey, namespace: "error" }));
+  });
+
+  test("AZDIGI: refused only for the second factor, it offers that step and comes back here", async () => {
+    const stepLib = await import("@/lib/azdigi/second-factor-step");
+    const step = { kind: "totp", href: "/otp/time-based?loginName=user%40example.com" } as const;
+    vi.mocked(azdigiGuard.enrolmentAuthorizationError).mockResolvedValue("You have to verify your second factor first");
+    vi.mocked(stepLib.secondFactorStep).mockResolvedValue(step);
+
+    const result = await Page({ searchParams: Promise.resolve({ loginName: "user@example.com", checkAfter: "true" }) });
+
+    expect(findElements(result, RegisterU2f)).toHaveLength(0);
+    expect(stepLib.secondFactorStep).toHaveBeenCalledWith(expect.objectContaining({ returnTo: "/u2f/set?checkAfter=true" }));
+    expect(findElements(result, SecondFactorFirst).map((element) => element.props.step)).toEqual([step]);
   });
 
   test("keeps the session expired message when the session can't be resolved", async () => {

@@ -4,6 +4,7 @@ import { LoginOTP } from "@/components/login-otp";
 import { Translated } from "@/components/translated";
 import { UserAvatar } from "@/components/user-avatar";
 import { decoyLoginName, decoyOrganization } from "@/lib/azdigi/decoy";
+import { enrolmentReturnTarget } from "@/lib/azdigi/enrolment-return";
 import { availableChannels, maskPhone, OTP_CHANNEL_METADATA_KEY, OtpChannel, phoneChannels } from "@/lib/azdigi/otp-channel";
 import { decideOtpFirstForUser } from "@/lib/azdigi/otp-first";
 import { hasVerifiedFirstFactor } from "@/lib/azdigi/policy";
@@ -216,6 +217,7 @@ export default async function Page(props: {
             altPassword={altPassword === "true"}
             altPasskey={altPasskey === "true"}
             channels={channels}
+            returnTo={firstFactor ? undefined : enrolmentReturnTarget(searchParams.returnTo)}
           ></LoginOTP>
         )}
       </div>

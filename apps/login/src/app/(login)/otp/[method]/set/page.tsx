@@ -1,4 +1,5 @@
 import { Alert } from "@/components/alert";
+import { SecondFactorFirst } from "@/components/azdigi/second-factor-first";
 import { BackButton } from "@/components/back-button";
 import { DynamicTheme } from "@/components/dynamic-theme";
 import { OTPAddForm } from "@/components/otp-add-form";
@@ -6,7 +7,8 @@ import { TotpRegister } from "@/components/totp-register";
 import { Translated } from "@/components/translated";
 import { UserAvatar } from "@/components/user-avatar";
 import { enrolmentAuthorizationError } from "@/lib/azdigi/enrolment-guard";
-import { setupErrorTranslationKey, SetupMethod } from "@/lib/server/enrollment-guard";
+import { SecondFactorStep, secondFactorStep } from "@/lib/azdigi/second-factor-step";
+import { SECOND_FACTOR_REQUIRED_ERROR, setupErrorTranslationKey, SetupMethod } from "@/lib/server/enrollment-guard";
 import { getServiceConfig } from "@/lib/server/service-url";
 import { loadMostRecentSession, loadSessionById } from "@/lib/server/session";
 import { getBrandingSettings, getLoginSettings, registerTOTP } from "@/lib/server/zitadel";
@@ -53,6 +55,7 @@ export default async function Page(props: {
 
   let totpResponse: RegisterTOTPResponse | undefined, error: Error | undefined;
   let setupError: string | null = null;
+  let step: SecondFactorStep | undefined;
   if (session && session.factors?.user?.id) {
     // Enrollment must be authorized: a bare identify-only session must not be able to
     // attach a new OTP/TOTP factor to the account (GHSA-45f2-5q3r-xgg6).
@@ -78,6 +81,21 @@ export default async function Page(props: {
       }
       setupError = enrollmentError;
       error = new Error(enrollmentError);
+      // AZDIGI: refused only because a configured second factor is not verified yet: offer that step; the
+      // authenticator set-up is come back to afterwards (codes have no set-up page to return to)
+      if (enrollmentError === SECOND_FACTOR_REQUIRED_ERROR) {
+        step = await secondFactorStep({
+          serviceConfig,
+          session,
+          returnTo:
+            method === "time-based"
+              ? checkAfter === "true"
+                ? "/otp/time-based/set?checkAfter=true"
+                : "/otp/time-based/set"
+              : "",
+          requestId,
+        });
+      }
     } else if (method === "time-based") {
       // registering only creates a pending secret, which is not used for authentication until
       // the user verified a code from it, so it's safe to do while rendering
@@ -155,7 +173,9 @@ export default async function Page(props: {
           </div>
         )}
 
-        {error && (
+        {setupError === SECOND_FACTOR_REQUIRED_ERROR && <SecondFactorFirst step={step} />}
+
+        {error && setupError !== SECOND_FACTOR_REQUIRED_ERROR && (
           <div className="py-4">
             <Alert>
               {setupError ? <Translated i18nKey={setupErrorTranslationKey(setupError)} namespace="error" /> : error?.message}

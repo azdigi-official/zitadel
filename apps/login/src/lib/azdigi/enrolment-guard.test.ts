@@ -131,6 +131,17 @@ describe("the gate every enrolment entry point calls", () => {
     expect(await gate(session({ webAuthN: { verifiedAt: at, userVerified: true } }), "totp")).toBeNull();
   });
 
+  test("customers organisation: a password session alone is refused with the reason that offers the code step; after the emailed code it may add a passkey", async () => {
+    vi.mocked(sessionLib.checkSessionPolicy).mockResolvedValue({ ok: true });
+    vi.mocked(issue.registeredMethodsOf).mockResolvedValue([M.PASSWORD, M.OTP_EMAIL]);
+    // this exact reason makes the page offer "send me the code" (lib/azdigi/second-factor-step.ts)
+    expect(await gate(password, "passkey")).toBe(upstreamGuard.SECOND_FACTOR_REQUIRED_ERROR);
+    const passwordAndCode = session({ password: { verifiedAt: at }, otpEmail: { verifiedAt: at } });
+    for (const method of ["passkey", "totp", "u2f"]) {
+      expect(await gate(passwordAndCode, method)).toBeNull();
+    }
+  });
+
   test("an OTP-first customer signed in with the emailed code alone may add a passkey", async () => {
     vi.mocked(sessionLib.checkSessionPolicy).mockResolvedValue({ ok: true });
     vi.mocked(issue.registeredMethodsOf).mockResolvedValue([M.OTP_EMAIL]);

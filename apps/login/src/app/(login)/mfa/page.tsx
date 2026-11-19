@@ -4,6 +4,7 @@ import { ChooseSecondFactor } from "@/components/choose-second-factor";
 import { DynamicTheme } from "@/components/dynamic-theme";
 import { Translated } from "@/components/translated";
 import { UserAvatar } from "@/components/user-avatar";
+import { enrolmentReturnTarget } from "@/lib/azdigi/enrolment-return";
 import { getSessionCookieById } from "@/lib/server/cookies";
 import { getServiceConfig } from "@/lib/server/service-url";
 import { loadMostRecentSession } from "@/lib/server/session";
@@ -101,6 +102,7 @@ export default async function Page(props: { searchParams: Promise<Record<string 
             loginName={loginName}
             sessionId={sessionId}
             requestId={requestId}
+            returnTo={enrolmentReturnTarget(searchParams.returnTo)}
             organization={organization}
             userMethods={sessionFactors.authMethods ?? []}
           ></ChooseSecondFactor>
