@@ -401,7 +401,7 @@ describe("verifyTOTP", () => {
       serviceConfig: {},
       session: totpSession,
       userId: "victim-1",
-      kind: "strong",
+      method: "totp",
     });
     expect(mockVerifyTOTPRegistration).not.toHaveBeenCalled();
   });

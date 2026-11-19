@@ -55,7 +55,7 @@ export async function addU2F(command: RegisterU2FCommand) {
     serviceConfig,
     session: session.session,
     userId,
-    kind: "strong",
+    method: "u2f",
   });
   if (enrollmentError) {
     return { error: enrollmentError };
@@ -100,7 +100,7 @@ export async function verifyU2F(command: VerifyU2FCommand) {
     serviceConfig,
     session: session.session,
     userId,
-    kind: "strong",
+    method: "u2f",
   });
   if (enrollmentError) {
     return { error: enrollmentError };

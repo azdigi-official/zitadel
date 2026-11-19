@@ -83,7 +83,7 @@ export async function registerPasskeyLink(
       serviceConfig,
       session: session.session,
       userId: currentUserId,
-      kind: "strong",
+      method: "passkey",
     });
 
     if (enrollmentError) {
@@ -202,15 +202,18 @@ export async function verifyPasskeyRegistration(command: VerifyPasskeyCommand) {
       throw new Error("Could not get session");
     }
 
-    // AZDIGI: finishing a registration needs what starting it needs (lib/azdigi/enrolment-guard.ts)
-    const enrollmentError = await enrolmentAuthorizationError({
+    // Same check as registerPasskeyLink: completing the registration must not be possible from a
+    // session that may not add a passkey. The userId flow below is the emailed code flow, where
+    // the code already authorized the registration that is being completed (AZDIGI: and only in
+    // the browser that started it with that code).
+    const setupError = await enrolmentAuthorizationError({
       serviceConfig,
       session: session?.session,
       userId,
-      kind: "strong",
+      method: "passkey",
     });
-    if (enrollmentError) {
-      throw new Error(enrollmentError);
+    if (setupError) {
+      return { error: setupError };
     }
 
     currentUserId = userId;
@@ -224,7 +227,7 @@ export async function verifyPasskeyRegistration(command: VerifyPasskeyCommand) {
       logger.warn("passkey registration refused: not started with a registration code in this browser", {
         userId: currentUserId,
       });
-      throw new Error(ENROLMENT_REFUSED);
+      return { error: ENROLMENT_REFUSED };
     }
 
     // Verify user exists

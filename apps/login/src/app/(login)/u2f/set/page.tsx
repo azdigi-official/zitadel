@@ -4,6 +4,7 @@ import { RegisterU2f } from "@/components/register-u2f";
 import { Translated } from "@/components/translated";
 import { UserAvatar } from "@/components/user-avatar";
 import { enrolmentAuthorizationError } from "@/lib/azdigi/enrolment-guard";
+import { setupErrorTranslationKey } from "@/lib/server/enrollment-guard";
 import { getServiceConfig } from "@/lib/server/service-url";
 import { loadMostRecentSession } from "@/lib/server/session";
 import { getBrandingSettings } from "@/lib/server/zitadel";
@@ -38,12 +39,14 @@ export default async function Page(props: { searchParams: Promise<Record<string 
   // authenticator-registration form (defense in depth alongside the addU2F/verifyU2F server
   // actions, GHSA-45f2-5q3r-xgg6).
   let enrollmentAuthorized = false;
+  let enrollmentError: string | null = null;
   if (sessionFactors?.id && sessionFactors.factors?.user?.id) {
-    const enrollmentError = await enrolmentAuthorizationError({
+    // AZDIGI: lib/azdigi/enrolment-guard.ts (the organisation's policy plus upstream's rules)
+    enrollmentError = await enrolmentAuthorizationError({
       serviceConfig,
       session: sessionFactors,
       userId: sessionFactors.factors.user.id,
-      kind: "strong",
+      method: "u2f",
     });
     enrollmentAuthorized = !enrollmentError;
   }
@@ -73,8 +76,17 @@ export default async function Page(props: { searchParams: Promise<Record<string 
         {(!sessionFactors || !enrollmentAuthorized) && (
           <div className="py-4">
             <Alert>
-              {/* a loginName was provided but the session could not be resolved (cookie missing, invalid or expired) */}
-              <Translated i18nKey={!sessionFactors && loginName ? "sessionExpired" : "unknownContext"} namespace="error" />
+              {/* the session may not set up U2F, or a loginName was provided but the session could not be resolved (cookie missing, invalid or expired) */}
+              <Translated
+                i18nKey={
+                  enrollmentError
+                    ? setupErrorTranslationKey(enrollmentError)
+                    : !sessionFactors && loginName
+                      ? "sessionExpired"
+                      : "unknownContext"
+                }
+                namespace="error"
+              />
             </Alert>
           </div>
         )}

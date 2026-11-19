@@ -45,6 +45,12 @@ export function RegisterPasskey({
 
   const router = useRouter();
 
+  // An emailed registration code authorizes the registration by itself, so it takes precedence
+  // over a session that may be in the browser: that session might not be allowed to add an
+  // authenticator (e.g. it only passed the password of a user with a second factor), or might
+  // belong to another user.
+  const useCode = !!(userId && code && codeId);
+
   const continueAndLogin = useCallback(
     (loginName?: string) => {
       const params = new URLSearchParams();
@@ -57,7 +63,8 @@ export function RegisterPasskey({
         params.set("requestId", requestId);
       }
 
-      if (sessionId) {
+      // in the emailed code flow, the sign-in continues with the code's user, not with the session
+      if (sessionId && !useCode) {
         params.set("sessionId", sessionId);
       }
 
@@ -71,7 +78,7 @@ export function RegisterPasskey({
 
       router.push("/passkey?" + params);
     },
-    [organization, requestId, sessionId, userId, initialLoginName, router],
+    [organization, requestId, sessionId, useCode, userId, initialLoginName, router],
   );
 
   async function submitVerify(
@@ -111,10 +118,10 @@ export function RegisterPasskey({
 
     let regReq;
 
-    if (sessionId) {
+    if (useCode) {
+      regReq = { userId: userId!, code: code!, codeId: codeId! };
+    } else if (sessionId) {
       regReq = { sessionId };
-    } else if (userId && code && codeId) {
-      regReq = { userId, code, codeId };
     } else {
       setError("Missing code for user-based registration");
       setLoading(false);
@@ -188,18 +195,23 @@ export function RegisterPasskey({
       },
     };
 
-    const verificationResponse = await submitVerify(passkeyId, "", data, sessionId, userId);
+    const verificationResponse = await submitVerify(passkeyId, "", data, useCode ? undefined : sessionId, userId);
 
     if (!verificationResponse) {
       setError("Could not verify Passkey!");
       return;
     }
 
+    if ("error" in verificationResponse && verificationResponse.error) {
+      setError(verificationResponse.error);
+      return;
+    }
+
     // AZDIGI: a passkey was really registered. Without an application request the flow ends at the account page, which
     // then says so; "skip" also continues from here but must not claim a passkey was added
     if (!requestId) rememberAccountNotice("passkey");
-    continueAndLogin(verificationResponse.loginName);
-  }, [sessionId, userId, code, codeId, continueAndLogin, requestId]);
+    continueAndLogin("loginName" in verificationResponse ? verificationResponse.loginName : undefined);
+  }, [sessionId, userId, code, codeId, useCode, continueAndLogin, requestId]);
 
   // Auto-submit when code is provided (similar to VerifyForm)
   useEffect(() => {

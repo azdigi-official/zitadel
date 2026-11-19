@@ -285,17 +285,18 @@ async function resolveUserIdFromSession({
     // checked at the entry of processIDPCallback only proves the link request originated from
     // the same browser that started the flow, not that the session was ever authenticated.
     //
-    // enrolmentAuthorizationError (upstream's getEnrollmentAuthorizationError rule, stricter for strong methods) authorizes when the session has a verified, non-expired
-    // primary factor, OR the user has no authentication methods yet AND passed a
-    // user-verification check (the email/invite-code proof bound to this browser's
-    // binding id). The latter preserves the legitimate "link an IDP as the first
-    // authenticator" onboarding flow, which isSessionValid would have rejected.
     // AZDIGI: a linked IdP signs in on its own, so linking needs what adding any strong method needs
+    // (lib/azdigi/enrolment-guard.ts): a session the organisation's policy accepts (or the first set-up),
+    // AND, as upstream requires, a verified second factor if the user configured one, OR the user has no
+    // authentication methods yet AND passed a user-verification check (the email/invite-code proof bound
+    // to this browser's binding id): the "link an IDP as the first authenticator" onboarding flow.
+    // Whether this IDP may be linked at all is checked separately below
+    // (isLinkingAllowed, validateIDPLinkingPermissions).
     const enrollmentError = await enrolmentAuthorizationError({
       serviceConfig,
       session,
       userId: session.factors.user.id,
-      kind: "strong",
+      method: "idp",
     });
     if (enrollmentError) {
       logger.warn("Session for linking is not authorized", { enrollmentError });

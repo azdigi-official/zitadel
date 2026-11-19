@@ -69,7 +69,7 @@ describe("addU2F", () => {
       serviceConfig: { baseUrl: "https://example.com" },
       session: userOnlySession.session,
       userId: "victim-1",
-      kind: "strong",
+      method: "u2f",
     });
     expect(registerU2F).not.toHaveBeenCalled();
   });

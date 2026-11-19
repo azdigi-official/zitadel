@@ -4,6 +4,8 @@ import { DynamicTheme } from "@/components/dynamic-theme";
 import { RegisterPasskey } from "@/components/register-passkey";
 import { Translated } from "@/components/translated";
 import { UserAvatar } from "@/components/user-avatar";
+import { enrolmentAuthorizationError } from "@/lib/azdigi/enrolment-guard";
+import { setupErrorTranslationKey } from "@/lib/server/enrollment-guard";
 import { getServiceConfig } from "@/lib/server/service-url";
 import { loadMostRecentSession } from "@/lib/server/session";
 import { getBrandingSettings, getUserByID } from "@/lib/server/zitadel";
@@ -41,6 +43,23 @@ export default async function Page(props: { searchParams: Promise<Record<string 
 
   const branding = await getBrandingSettings({ serviceConfig, organization });
 
+  // Defense in depth alongside registerPasskeyLink: don't offer the registration form for a
+  // session that may not set up a passkey (unauthorized session or passkeys not allowed).
+  // In the emailed code flow (userId + code) the code itself authorizes the registration, and
+  // RegisterPasskey uses it even if a session is in the browser; otherwise registerPasskeyLink
+  // applies the same check.
+  const isCodeFlow = !!(userId && code && codeId);
+  let setupError: string | null = null;
+  if (session?.factors?.user?.id && !isCodeFlow) {
+    // AZDIGI: lib/azdigi/enrolment-guard.ts (the organisation's policy plus upstream's rules)
+    setupError = await enrolmentAuthorizationError({
+      serviceConfig,
+      session,
+      userId: session.factors.user.id,
+      method: "passkey",
+    });
+  }
+
   let user: User | undefined;
   let displayName: string | undefined;
   if (userId) {
@@ -58,6 +77,10 @@ export default async function Page(props: { searchParams: Promise<Record<string 
   if (organization) backToLoginParams.set("organization", organization);
   if (requestId) backToLoginParams.set("requestId", requestId);
 
+  // in the code flow the passkey is registered for the code's user, so show that user even if a
+  // session (possibly of another user) is in the browser
+  const showCodeUser = isCodeFlow && !!user;
+
   return (
     <DynamicTheme branding={branding}>
       <div className="flex flex-col space-y-4">
@@ -69,7 +92,7 @@ export default async function Page(props: { searchParams: Promise<Record<string 
           <Translated i18nKey="set.description" namespace="passkey" />
         </p>
 
-        {session ? (
+        {session && !showCodeUser ? (
           <UserAvatar
             loginName={loginName ?? session.factors?.user?.loginName}
             displayName={session.factors?.user?.displayName}
@@ -118,7 +141,15 @@ export default async function Page(props: { searchParams: Promise<Record<string 
           </div>
         )}
 
-        {(session?.id || userId) && (
+        {setupError && (
+          <div className="py-4">
+            <Alert>
+              <Translated i18nKey={setupErrorTranslationKey(setupError)} namespace="error" />
+            </Alert>
+          </div>
+        )}
+
+        {!setupError && (session?.id || userId) && (
           <RegisterPasskey
             sessionId={session?.id}
             userId={userId}
@@ -127,7 +158,11 @@ export default async function Page(props: { searchParams: Promise<Record<string 
             requestId={requestId}
             code={code}
             codeId={codeId}
-            loginName={loginName ?? session?.factors?.user?.loginName ?? user?.preferredLoginName}
+            loginName={
+              showCodeUser
+                ? user?.preferredLoginName
+                : (loginName ?? session?.factors?.user?.loginName ?? user?.preferredLoginName)
+            }
           />
         )}
       </div>

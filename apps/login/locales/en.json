@@ -525,7 +525,9 @@
     "tryagain": "Try Again",
     "couldNotContinueSession": "Could not continue with session - missing user information",
     "couldNotClearSession": "Could not end the session. Please try again.",
-    "backToLogin": "Back to sign in"
+    "backToLogin": "Back to sign in",
+    "secondFactorRequired": "Verify your second factor first to set up a new authentication method.",
+    "authenticatorNotAllowed": "This authentication method is not allowed for your organization."
   },
   "denied": {
     "title": "Access not possible",

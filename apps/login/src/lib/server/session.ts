@@ -11,6 +11,7 @@ import { AuthRequest } from "@zitadel/proto/zitadel/oidc/v2/authorization_pb";
 import { SAMLRequest } from "@zitadel/proto/zitadel/saml/v2/authorization_pb";
 import { Session } from "@zitadel/proto/zitadel/session/v2/session_pb";
 import { GetSessionResponse } from "@zitadel/proto/zitadel/session/v2/session_service_pb";
+import { AuthenticationMethodType } from "@zitadel/proto/zitadel/user/v2/user_service_pb";
 
 type LoadMostRecentSessionParams = {
   serviceConfig: ServiceConfig;
@@ -110,6 +111,29 @@ export function hasVerifiedPrimaryFactor(session: Partial<Session>): {
   const valid = !!(verifiedAt && stillValid);
 
   return { valid, verifiedAt };
+}
+
+/** The authentication methods that are second factors (a passkey is multi-factor on its own). */
+export const SECOND_FACTOR_METHODS = [
+  AuthenticationMethodType.TOTP,
+  AuthenticationMethodType.OTP_EMAIL,
+  AuthenticationMethodType.OTP_SMS,
+  AuthenticationMethodType.U2F,
+];
+
+/**
+ * Reports whether the session has verified one of the second factors in `authMethods`, the
+ * user's configured authentication methods. A user-verified passkey is not considered here;
+ * callers that treat it as multi-factor check it separately.
+ */
+export function hasVerifiedSecondFactor(session: Partial<Session>, authMethods: AuthenticationMethodType[]): boolean {
+  const factors = session.factors;
+  return (
+    (authMethods.includes(AuthenticationMethodType.TOTP) && !!factors?.totp?.verifiedAt) ||
+    (authMethods.includes(AuthenticationMethodType.OTP_EMAIL) && !!factors?.otpEmail?.verifiedAt) ||
+    (authMethods.includes(AuthenticationMethodType.OTP_SMS) && !!factors?.otpSms?.verifiedAt) ||
+    (authMethods.includes(AuthenticationMethodType.U2F) && !!factors?.webAuthN?.verifiedAt)
+  );
 }
 
 /**

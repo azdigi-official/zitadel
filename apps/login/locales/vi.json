@@ -525,7 +525,9 @@
     "failedLoading": "Không tải được dữ liệu. Hãy thử lại.",
     "tryagain": "Thử lại",
     "couldNotContinueSession": "Không tiếp tục được phiên - thiếu thông tin người dùng",
-    "couldNotClearSession": "Không kết thúc được phiên. Vui lòng thử lại."
+    "couldNotClearSession": "Không kết thúc được phiên. Vui lòng thử lại.",
+    "secondFactorRequired": "Hãy xác thực lớp thứ hai trước khi thiết lập phương thức đăng nhập mới.",
+    "authenticatorNotAllowed": "Tổ chức của bạn không cho phép phương thức xác thực này."
   },
   "denied": {
     "title": "Không thể truy cập",

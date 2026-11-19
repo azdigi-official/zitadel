@@ -1,5 +1,6 @@
 import { registerPasskeyLink, sendPasskey, verifyPasskeyRegistration } from "@/lib/actions/passkeys";
 import { ENROLMENT_REFUSED } from "@/lib/azdigi/enrolment-guard";
+import { PasskeysType } from "@zitadel/proto/zitadel/settings/v2/login_settings_pb";
 import { AuthenticationMethodType } from "@zitadel/proto/zitadel/user/v2/user_service_pb";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
@@ -539,7 +540,12 @@ describe("registerPasskeyLink", () => {
     mockGetPublicHost.mockReturnValue("test.com");
 
     const { getLoginSettings } = await import("@/lib/server/zitadel");
-    vi.mocked(getLoginSettings).mockResolvedValue({ forceMfa: false, secondFactors: [], multiFactors: [] } as any);
+    vi.mocked(getLoginSettings).mockResolvedValue({
+      forceMfa: false,
+      passkeysType: PasskeysType.ALLOWED,
+      secondFactors: [],
+      multiFactors: [],
+    } as any);
     mockListAuthenticationMethodTypes.mockResolvedValue({ authMethodTypes: [AuthenticationMethodType.PASSWORD] });
   });
 
@@ -575,6 +581,7 @@ describe("registerPasskeyLink", () => {
     };
 
     test("should succeed for session authenticated via IDP intent", async () => {
+      mockListAuthenticationMethodTypes.mockResolvedValue({ authMethodTypes: [3] }); // IDP only
       mockGetSessionCookieById.mockResolvedValue(sessionCookie);
       mockGetSession.mockResolvedValue(idpSession);
       mockCreatePasskeyRegistrationLink.mockResolvedValue({
@@ -596,7 +603,8 @@ describe("registerPasskeyLink", () => {
       );
     });
 
-    test("should not require user verification or auth method check when IDP session is valid", async () => {
+    test("should not require user verification when IDP session is valid", async () => {
+      mockListAuthenticationMethodTypes.mockResolvedValue({ authMethodTypes: [3] }); // IDP only
       mockGetSessionCookieById.mockResolvedValue(sessionCookie);
       mockGetSession.mockResolvedValue(idpSession);
       mockCreatePasskeyRegistrationLink.mockResolvedValue({
@@ -617,6 +625,7 @@ describe("registerPasskeyLink", () => {
 
   describe("password-authenticated session", () => {
     test("should succeed for session authenticated via password", async () => {
+      mockListAuthenticationMethodTypes.mockResolvedValue({ authMethodTypes: [1] }); // password only
       mockGetSessionCookieById.mockResolvedValue({
         id: "session-123",
         token: "session-token",
@@ -644,6 +653,61 @@ describe("registerPasskeyLink", () => {
       const result = await registerPasskeyLink({ sessionId: "session-123" });
 
       expect(result).toHaveProperty("passkeyId");
+    });
+
+    test("should reject a password-only session when the user has a second factor configured", async () => {
+      // the first factor alone must not allow enrolling a passkey that then bypasses the second factor
+      mockListAuthenticationMethodTypes.mockResolvedValue({ authMethodTypes: [1, 6] }); // password + OTP SMS
+      mockGetSessionCookieById.mockResolvedValue({
+        id: "session-123",
+        token: "session-token",
+        loginName: "max@zitadel.com",
+      });
+      mockGetSession.mockResolvedValue({
+        session: {
+          id: "session-123",
+          factors: {
+            user: { id: "user-123", loginName: "max@zitadel.com", verifiedAt: { seconds: BigInt(1700000000), nanos: 0 } },
+            password: {
+              verifiedAt: { seconds: BigInt(1700000000), nanos: 0 },
+            },
+          },
+        },
+      });
+
+      const result = await registerPasskeyLink({ sessionId: "session-123" });
+
+      expect(result).toEqual({ error: "You have to verify your second factor first" });
+      expect(mockCreatePasskeyRegistrationLink).not.toHaveBeenCalled();
+      expect(mockRegisterPasskey).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("passkeys not allowed by the login settings", () => {
+    test("should reject registration even for a fully authenticated session", async () => {
+      const { getLoginSettings } = await import("@/lib/server/zitadel");
+      vi.mocked(getLoginSettings).mockResolvedValue({ passkeysType: PasskeysType.NOT_ALLOWED, secondFactors: [] } as any);
+      mockListAuthenticationMethodTypes.mockResolvedValue({ authMethodTypes: [1] }); // password only
+      mockGetSessionCookieById.mockResolvedValue({
+        id: "session-123",
+        token: "session-token",
+        loginName: "max@zitadel.com",
+      });
+      mockGetSession.mockResolvedValue({
+        session: {
+          id: "session-123",
+          factors: {
+            user: { id: "user-123", loginName: "max@zitadel.com", verifiedAt: { seconds: BigInt(1700000000), nanos: 0 } },
+            password: { verifiedAt: { seconds: BigInt(1700000000), nanos: 0 } },
+          },
+        },
+      });
+
+      const result = await registerPasskeyLink({ sessionId: "session-123" });
+
+      expect(result).toEqual({ error: "Passkeys are not allowed" });
+      expect(mockCreatePasskeyRegistrationLink).not.toHaveBeenCalled();
+      expect(mockRegisterPasskey).not.toHaveBeenCalled();
     });
   });
 
@@ -762,6 +826,7 @@ describe("passkey enrolment past the forced second factor (AZDIGI)", () => {
     // staff: MFA forced, and this member already set up an authenticator app
     vi.mocked(zitadel.getLoginSettings).mockResolvedValue({
       forceMfa: true,
+      passkeysType: PasskeysType.ALLOWED,
       secondFactors: [1, 2],
       multiFactors: [],
     } as any);
@@ -778,9 +843,14 @@ describe("passkey enrolment past the forced second factor (AZDIGI)", () => {
   });
 
   test("nor finish one through the session path", async () => {
-    await expect(
-      verifyPasskeyRegistration({ passkeyId: "p1", publicKeyCredential: {}, passkeyName: "k", sessionId: "session-1" }),
-    ).rejects.toThrow(ENROLMENT_REFUSED);
+    expect(
+      await verifyPasskeyRegistration({
+        passkeyId: "p1",
+        publicKeyCredential: {},
+        passkeyName: "k",
+        sessionId: "session-1",
+      }),
+    ).toEqual({ error: ENROLMENT_REFUSED });
   });
 
   test("the first set-up of a staff member with no strong factor is allowed after the password", async () => {
@@ -799,9 +869,11 @@ describe("passkey enrolment past the forced second factor (AZDIGI)", () => {
     vi.mocked(zitadel.getUserByID).mockResolvedValue({ user: { preferredLoginName: "new@example.com" } } as any);
 
     vi.mocked(proof.wasStartedWithCode).mockResolvedValue(false);
-    await expect(
-      verifyPasskeyRegistration({ passkeyId: "p1", publicKeyCredential: {}, passkeyName: "k", userId: "u1" }),
-    ).rejects.toThrow(ENROLMENT_REFUSED);
+    expect(
+      await verifyPasskeyRegistration({ passkeyId: "p1", publicKeyCredential: {}, passkeyName: "k", userId: "u1" }),
+    ).toEqual({
+      error: ENROLMENT_REFUSED,
+    });
     expect(proof.wasStartedWithCode).toHaveBeenCalledWith("u1", "p1");
 
     vi.mocked(proof.wasStartedWithCode).mockResolvedValue(true);
@@ -822,5 +894,101 @@ describe("passkey enrolment past the forced second factor (AZDIGI)", () => {
     await registerPasskeyLink({ userId: "u1", code: "v", codeId: "c" });
 
     expect(proof.rememberCodeStartedRegistration).toHaveBeenCalledWith("u1", "p9");
+  });
+});
+
+describe("verifyPasskeyRegistration", () => {
+  const future = { seconds: BigInt(Math.floor(Date.now() / 1000) + 3600), nanos: 0 };
+  let zitadel: any;
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    const { headers } = await import("next/headers");
+    const { getServiceConfig } = await import("@/lib/server/service-url");
+    const { getSessionCookieById } = await import("@/lib/server/cookies");
+    zitadel = await import("@/lib/server/zitadel");
+
+    vi.mocked(headers).mockResolvedValue(new Headers({ host: "test.com" }) as any);
+    vi.mocked(getServiceConfig).mockReturnValue({ serviceConfig: { baseUrl: "https://example.com" } } as any);
+    vi.mocked(getSessionCookieById).mockResolvedValue({ id: "session-123", token: "token" } as any);
+    vi.mocked(zitadel.getLoginSettings).mockResolvedValue({ passkeysType: PasskeysType.ALLOWED, secondFactors: [] });
+    vi.mocked(zitadel.verifyPasskeyRegistration).mockResolvedValue({ details: {} });
+  });
+
+  const passwordSession = (extraFactors: object = {}) => ({
+    session: {
+      id: "session-123",
+      factors: {
+        user: { id: "user-123", loginName: "max@zitadel.com", organizationId: "org-1", verifiedAt: future },
+        password: { verifiedAt: future },
+        ...extraFactors,
+      },
+    },
+  });
+
+  test("rejects completing the registration from a password-only session when the user has a second factor", async () => {
+    vi.mocked(zitadel.getSession).mockResolvedValue(passwordSession());
+    vi.mocked(zitadel.listAuthenticationMethodTypes).mockResolvedValue({ authMethodTypes: [1, 4] }); // password + TOTP
+
+    const result = await verifyPasskeyRegistration({
+      passkeyId: "passkey-1",
+      passkeyName: "key",
+      publicKeyCredential: {},
+      sessionId: "session-123",
+    });
+
+    // AZDIGI: the organisation's policy already refuses this session (a password never gets past a configured TOTP),
+    // before upstream's second-factor rule is reached; either way nothing is registered
+    expect(result).toEqual({ error: ENROLMENT_REFUSED });
+    expect(zitadel.verifyPasskeyRegistration).not.toHaveBeenCalled();
+  });
+
+  test("completes the registration when the session verified the second factor", async () => {
+    vi.mocked(zitadel.getSession).mockResolvedValue(passwordSession({ totp: { verifiedAt: future } }));
+    vi.mocked(zitadel.listAuthenticationMethodTypes).mockResolvedValue({ authMethodTypes: [1, 4] });
+
+    const result = await verifyPasskeyRegistration({
+      passkeyId: "passkey-1",
+      passkeyName: "key",
+      publicKeyCredential: {},
+      sessionId: "session-123",
+    });
+
+    expect(result).toMatchObject({ loginName: "max@zitadel.com" });
+    expect(zitadel.verifyPasskeyRegistration).toHaveBeenCalled();
+  });
+
+  test("rejects completing the registration when passkeys are not allowed", async () => {
+    vi.mocked(zitadel.getSession).mockResolvedValue(passwordSession());
+    vi.mocked(zitadel.listAuthenticationMethodTypes).mockResolvedValue({ authMethodTypes: [1] });
+    vi.mocked(zitadel.getLoginSettings).mockResolvedValue({ passkeysType: PasskeysType.NOT_ALLOWED, secondFactors: [] });
+
+    const result = await verifyPasskeyRegistration({
+      passkeyId: "passkey-1",
+      passkeyName: "key",
+      publicKeyCredential: {},
+      sessionId: "session-123",
+    });
+
+    expect(result).toEqual({ error: "Passkeys are not allowed" });
+    expect(zitadel.verifyPasskeyRegistration).not.toHaveBeenCalled();
+  });
+
+  test("leaves the emailed code flow (userId, no session) to the code", async () => {
+    // AZDIGI: the code flow is finished only by the browser that started it with the code
+    const proof = await import("@/lib/azdigi/passkey-registration-proof");
+    vi.mocked(proof.wasStartedWithCode).mockResolvedValue(true);
+    vi.mocked(zitadel.getUserByID).mockResolvedValue({ user: { preferredLoginName: "max@zitadel.com" } });
+
+    const result = await verifyPasskeyRegistration({
+      passkeyId: "passkey-1",
+      passkeyName: "key",
+      publicKeyCredential: {},
+      userId: "user-123",
+    });
+
+    expect(result).toMatchObject({ loginName: "max@zitadel.com" });
+    expect(zitadel.listAuthenticationMethodTypes).not.toHaveBeenCalled();
+    expect(zitadel.verifyPasskeyRegistration).toHaveBeenCalled();
   });
 });

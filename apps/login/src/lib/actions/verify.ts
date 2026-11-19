@@ -55,7 +55,7 @@ export async function verifyTOTP(code: string, loginName?: string, organization?
         serviceConfig,
         session,
         userId: session.factors.user.id,
-        kind: "strong",
+        method: "totp",
       });
       if (enrollmentError) {
         return { error: enrollmentError };
