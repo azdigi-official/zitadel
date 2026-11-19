@@ -1,3 +1,5 @@
+// AZDIGI: the action calls lib/azdigi/enrolment-guard.ts (upstream's guard plus the policy rule for strong methods);
+// the gate itself is tested in lib/azdigi/enrolment-guard.test.ts.
 import { addU2F, verifyU2F } from "@/lib/actions/u2f";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
@@ -24,8 +26,8 @@ vi.mock("@/lib/server/cookies", () => ({
   getSessionCookieById: vi.fn(),
 }));
 
-vi.mock("@/lib/server/enrollment-guard", () => ({
-  getEnrollmentAuthorizationError: vi.fn(),
+vi.mock("@/lib/azdigi/enrolment-guard", () => ({
+  enrolmentAuthorizationError: vi.fn(),
 }));
 
 vi.mock("next/headers", () => ({
@@ -44,37 +46,36 @@ describe("addU2F", () => {
   let getSessionCookieById: any;
   let getSession: any;
   let registerU2F: any;
-  let getEnrollmentAuthorizationError: any;
+  let enrolmentAuthorizationError: any;
 
   beforeEach(async () => {
     vi.clearAllMocks();
     getSessionCookieById = vi.mocked((await import("@/lib/server/cookies")).getSessionCookieById);
     getSession = vi.mocked((await import("@/lib/server/zitadel")).getSession);
     registerU2F = vi.mocked((await import("@/lib/server/zitadel")).registerU2F);
-    getEnrollmentAuthorizationError = vi.mocked(
-      (await import("@/lib/server/enrollment-guard")).getEnrollmentAuthorizationError,
-    );
+    enrolmentAuthorizationError = vi.mocked((await import("@/lib/azdigi/enrolment-guard")).enrolmentAuthorizationError);
 
     getSessionCookieById.mockResolvedValue({ id: "session-1", token: "token-1" });
     getSession.mockResolvedValue(userOnlySession);
   });
 
   test("rejects enrollment on an unauthenticated (identify-only) session without registering", async () => {
-    getEnrollmentAuthorizationError.mockResolvedValue("You have to authenticate or have a valid User Verification Check");
+    enrolmentAuthorizationError.mockResolvedValue("You have to authenticate or have a valid User Verification Check");
 
     const result = await addU2F({ sessionId: "session-1" });
 
     expect(result).toEqual({ error: "You have to authenticate or have a valid User Verification Check" });
-    expect(getEnrollmentAuthorizationError).toHaveBeenCalledWith({
+    expect(enrolmentAuthorizationError).toHaveBeenCalledWith({
       serviceConfig: { baseUrl: "https://example.com" },
       session: userOnlySession.session,
       userId: "victim-1",
+      kind: "strong",
     });
     expect(registerU2F).not.toHaveBeenCalled();
   });
 
   test("registers the credential when the session is authorized", async () => {
-    getEnrollmentAuthorizationError.mockResolvedValue(null);
+    enrolmentAuthorizationError.mockResolvedValue(null);
     registerU2F.mockResolvedValue({ u2fId: "u2f-1" });
 
     const result = await addU2F({ sessionId: "session-1" });
@@ -93,7 +94,7 @@ describe("addU2F", () => {
     const result = await addU2F({ sessionId: "missing" });
 
     expect(result).toEqual({ error: "Could not get session" });
-    expect(getEnrollmentAuthorizationError).not.toHaveBeenCalled();
+    expect(enrolmentAuthorizationError).not.toHaveBeenCalled();
     expect(registerU2F).not.toHaveBeenCalled();
   });
 });
@@ -102,23 +103,21 @@ describe("verifyU2F", () => {
   let getSessionCookieById: any;
   let getSession: any;
   let verifyU2FRegistration: any;
-  let getEnrollmentAuthorizationError: any;
+  let enrolmentAuthorizationError: any;
 
   beforeEach(async () => {
     vi.clearAllMocks();
     getSessionCookieById = vi.mocked((await import("@/lib/server/cookies")).getSessionCookieById);
     getSession = vi.mocked((await import("@/lib/server/zitadel")).getSession);
     verifyU2FRegistration = vi.mocked((await import("@/lib/server/zitadel")).verifyU2FRegistration);
-    getEnrollmentAuthorizationError = vi.mocked(
-      (await import("@/lib/server/enrollment-guard")).getEnrollmentAuthorizationError,
-    );
+    enrolmentAuthorizationError = vi.mocked((await import("@/lib/azdigi/enrolment-guard")).enrolmentAuthorizationError);
 
     getSessionCookieById.mockResolvedValue({ id: "session-1", token: "token-1" });
     getSession.mockResolvedValue(userOnlySession);
   });
 
   test("rejects verification on an unauthenticated session without persisting the credential", async () => {
-    getEnrollmentAuthorizationError.mockResolvedValue("User Verification Check has to be done");
+    enrolmentAuthorizationError.mockResolvedValue("User Verification Check has to be done");
 
     const result = await verifyU2F({
       u2fId: "u2f-1",
@@ -132,7 +131,7 @@ describe("verifyU2F", () => {
   });
 
   test("verifies the registration when the session is authorized", async () => {
-    getEnrollmentAuthorizationError.mockResolvedValue(null);
+    enrolmentAuthorizationError.mockResolvedValue(null);
     verifyU2FRegistration.mockResolvedValue({ done: true });
 
     const result = await verifyU2F({

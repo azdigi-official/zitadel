@@ -1,13 +1,12 @@
 import "server-only";
 
+import { guardedCreateResponse, isPolicyRejected, redirectForVerdict } from "@/lib/azdigi/issue";
 import { isSafeRedirectUri } from "@/lib/client-utils";
 import { Cookie } from "@/lib/server/cookies";
 import { isClassifiedError } from "@/lib/server/grpc/interceptors/error-classification";
-import { reauthenticate } from "@/lib/server/reauthenticate";
-import { isSessionValid } from "@/lib/server/session";
-import { createResponse, getLoginSettings, ServiceConfig } from "@/lib/server/zitadel";
-import { Code, create } from "@zitadel/client";
-import { CreateResponseRequestSchema } from "@zitadel/proto/zitadel/saml/v2/saml_service_pb";
+import { checkSessionPolicy } from "@/lib/server/session";
+import { getLoginSettings, ServiceConfig } from "@/lib/server/zitadel";
+import { Code } from "@zitadel/client";
 import { Session } from "@zitadel/proto/zitadel/session/v2/session_pb";
 
 type LoginWithSAMLAndSession = {
@@ -32,12 +31,12 @@ export async function loginWithSAMLAndSession({
   const selectedSession = sessions.find((s) => s.id === sessionId);
 
   if (selectedSession && selectedSession.id) {
-    const isValid = await isSessionValid({ serviceConfig, session: selectedSession });
+    // AZDIGI: an invalid session is never linked to the SAML request; refuse with the precise next step of the
+    // organisation's policy. The token wrapper below re-checks with the session token anyway.
+    const verdict = await checkSessionPolicy({ serviceConfig, session: selectedSession });
 
-    if (!isValid) {
-      // An invalid session (e.g. no verified factor, MFA missing or expired) must never be
-      // linked to the SAML request. Send the user to re-authenticate, or fail closed.
-      return (await reauthenticate(selectedSession, `saml_${samlRequest}`)) ?? { error: "Session not found or invalid" };
+    if (!verdict.ok) {
+      return { redirect: redirectForVerdict(verdict, selectedSession, `saml_${samlRequest}`) };
     }
 
     const cookie = sessionCookies.find((cookie) => cookie.id === selectedSession?.id);
@@ -50,16 +49,7 @@ export async function loginWithSAMLAndSession({
 
       // works not with _rsc request
       try {
-        const { url, binding } = await createResponse({
-          serviceConfig,
-          req: create(CreateResponseRequestSchema, {
-            samlRequestId: samlRequest,
-            responseKind: {
-              case: "session",
-              value: session,
-            },
-          }),
-        });
+        const { url, binding } = await guardedCreateResponse({ serviceConfig, samlRequestId: samlRequest, session });
         if (url && binding.case === "redirect") {
           if (!isSafeRedirectUri(url)) {
             console.warn("loginWithSAMLAndSession: Blocked unsafe SAML redirect URL:", url);
@@ -84,6 +74,9 @@ export async function loginWithSAMLAndSession({
           return { error: "An error occurred!" };
         }
       } catch (error: unknown) {
+        if (isPolicyRejected(error)) {
+          return { redirect: redirectForVerdict(error.verdict, error.session ?? selectedSession, `saml_${samlRequest}`) };
+        }
         // handle already handled gracefully as these could come up if old emails with requestId are used (reset password, register emails etc.)
         console.error(error);
 

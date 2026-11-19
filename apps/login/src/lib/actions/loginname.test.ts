@@ -52,6 +52,16 @@ vi.mock("@/lib/server/verification-email", () => ({
   trySendVerification: vi.fn(() => Promise.resolve(false)),
 }));
 
+// AZDIGI: the OTP-first allow-list and the decoy (customer context) are tested in lib/azdigi and in the AZDIGI cases at
+// the end of this file; for the stock cases they stay out of the way (no OTP-first organisation, no minimum duration)
+vi.mock("@/lib/azdigi/org-lookup", () => ({
+  isOtpFirstOrg: vi.fn(async () => false),
+}));
+vi.mock("@/lib/azdigi/decoy", () => ({
+  decoyOtpRedirect: vi.fn().mockResolvedValue(undefined),
+  withMinimumDuration: (run: () => Promise<unknown>) => run(),
+}));
+
 // this returns the key itself that can be checked not the translated value
 vi.mock("next-intl/server", () => ({
   getTranslations: vi.fn(() => (key: string) => key),
@@ -115,7 +125,7 @@ describe("sendLoginname", () => {
     mockGetOrgsByDomain = vi.mocked(getOrgsByDomain);
 
     // Default mock implementations
-    mockHeaders.mockResolvedValue({} as any);
+    mockHeaders.mockResolvedValue(new Headers() as any);
     mockGetServiceUrlFromHeaders.mockReturnValue({ serviceConfig: { baseUrl: "https://api.example.com" } });
     // the real helper reads the binding id cookie, here the browser binding id is "fp123"
     vi.mocked(addIdpFlowProof).mockImplementation(async (params, linkToSessionId) => {
@@ -216,7 +226,11 @@ describe("sendLoginname", () => {
       mockCreateSessionAndUpdateCookie.mockResolvedValue({ session: mockSession, sessionCookie: {} });
     });
 
-    test("should redirect to verify without codeSent when user has no authentication methods and email is unverified", async () => {
+    test("AZDIGI: a user without a method and with an unverified email (a provisioned customer) is mailed the invitation", async () => {
+      const { resetLimiters } = await import("@/lib/azdigi/rate-limit");
+      const { trySendVerification } = await import("@/lib/server/verification-email");
+      resetLimiters();
+      vi.mocked(trySendVerification).mockClear().mockResolvedValue(true);
       mockListAuthenticationMethodTypes.mockResolvedValue({ authMethodTypes: [] });
 
       const result = await sendLoginname({
@@ -230,6 +244,9 @@ describe("sendLoginname", () => {
       expect((result as any).redirect).toContain("loginName=user%40example.com");
       expect((result as any).redirect).toContain("invite=true");
       expect((result as any).redirect).toContain("requestId=req123");
+      expect((result as any).redirect).toContain("codeSent=true");
+      expect(trySendVerification).toHaveBeenCalledWith({ userId: expect.any(String), isInvite: true, requestId: "req123" });
+      vi.mocked(trySendVerification).mockResolvedValue(false);
     });
 
     test("should redirect to verify when user has no authentication methods and email is already verified", async () => {
@@ -251,6 +268,54 @@ describe("sendLoginname", () => {
       expect((result as any).redirect).toContain("loginName=user%40example.com");
       expect((result as any).redirect).toContain("invite=true");
       expect((result as any).redirect).toContain("requestId=req123");
+    });
+
+    test("AZDIGI: one client over its code budget gets no invitation mailed; another client does", async () => {
+      const { resetLimiters, limiters } = await import("@/lib/azdigi/rate-limit");
+      const { trySendVerification } = await import("@/lib/server/verification-email");
+      resetLimiters();
+      vi.mocked(trySendVerification).mockClear().mockResolvedValue(true);
+      mockListAuthenticationMethodTypes.mockResolvedValue({ authMethodTypes: [] });
+      // the budget of code requests from this IP is spent (other accounts, other code requests)
+      while (limiters.otpSendPerIp.hit("ip:203.0.113.9").allowed) {
+        // spend
+      }
+      mockHeaders.mockResolvedValue(new Headers({ "cf-connecting-ip": "203.0.113.9" }) as any);
+      const command = { loginName: "user@example.com", requestId: "req123", organization: "org123" };
+
+      const refused = (await sendLoginname(command)) as { redirect: string };
+      expect(refused.redirect).toMatch(/^\/verify\?/);
+      expect(refused.redirect).not.toContain("codeSent=true");
+      expect(trySendVerification).not.toHaveBeenCalled();
+
+      mockHeaders.mockResolvedValue(new Headers({ "cf-connecting-ip": "198.51.100.4" }) as any);
+      const sent = (await sendLoginname(command)) as { redirect: string };
+      expect(sent.redirect).toContain("codeSent=true");
+      expect(trySendVerification).toHaveBeenCalledTimes(1);
+      vi.mocked(trySendVerification).mockResolvedValue(false);
+    });
+
+    test("AZDIGI: the invitation for a user without a method is mailed at most once a minute", async () => {
+      const { resetLimiters } = await import("@/lib/azdigi/rate-limit");
+      const { trySendVerification } = await import("@/lib/server/verification-email");
+      resetLimiters();
+      vi.mocked(trySendVerification).mockClear().mockResolvedValue(true);
+      mockSearchUsers.mockResolvedValue({
+        result: [
+          { ...mockUser, type: { case: "human", value: { email: { email: "user@example.com", isVerified: true } } } },
+        ],
+      });
+      mockListAuthenticationMethodTypes.mockResolvedValue({ authMethodTypes: [] });
+      const command = { loginName: "user@example.com", requestId: "req123", organization: "org123" };
+
+      const first = (await sendLoginname(command)) as { redirect: string };
+      const second = (await sendLoginname(command)) as { redirect: string };
+
+      expect(trySendVerification).toHaveBeenCalledTimes(1);
+      expect(first.redirect).toContain("codeSent=true");
+      expect(second.redirect).toMatch(/^\/verify\?/);
+      expect(second.redirect).not.toContain("codeSent=true");
+      vi.mocked(trySendVerification).mockResolvedValue(false);
     });
 
     describe("Single authentication method", () => {
@@ -1733,6 +1798,133 @@ describe("sendLoginname", () => {
       expect(result).toHaveProperty("redirect");
       // Should result in resolved name because context says SHOW
       expect((result as any).redirect).toContain("loginName=user%40example.com");
+    });
+  });
+});
+
+describe("sendLoginname AZDIGI first-factor rules", () => {
+  const customer = {
+    userId: "cust-1",
+    preferredLoginName: "khach@example.vn",
+    state: UserState.ACTIVE,
+    details: { resourceOwner: "customers" },
+    type: { case: "human", value: { email: { email: "khach@example.vn", isVerified: true } } },
+  };
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    const { headers } = await import("next/headers");
+    const { getServiceConfig } = await import("@/lib/server/service-url");
+    const zitadel = await import("@/lib/server/zitadel");
+    const { createSessionAndUpdateCookie } = await import("@/lib/server/session-cookie");
+    const orgLookup = await import("@/lib/azdigi/org-lookup");
+    vi.mocked(headers).mockResolvedValue(new Headers() as any);
+    vi.mocked(getServiceConfig).mockReturnValue({ serviceConfig: { baseUrl: "https://api.example.com" } } as any);
+    vi.mocked(zitadel.getLoginSettings).mockResolvedValue({
+      allowLocalAuthentication: true,
+      allowUsernamePassword: true,
+    } as any);
+    vi.mocked(zitadel.searchUsers).mockResolvedValue({ result: [customer] } as any);
+    vi.mocked(zitadel.getOrgsByDomain).mockResolvedValue({ result: [] } as any);
+    vi.mocked(createSessionAndUpdateCookie).mockResolvedValue({
+      session: { id: "s1", factors: { user: { id: "cust-1", loginName: "khach@example.vn", organizationId: "customers" } } },
+      sessionCookie: { id: "s1", token: "t" },
+    } as any);
+    vi.mocked(orgLookup.isOtpFirstOrg).mockImplementation(async (_cfg, org) => org === "customers");
+  });
+
+  test("trims outer whitespace before searching without mutating the command", async () => {
+    const zitadel = await import("@/lib/server/zitadel");
+    vi.mocked(zitadel.searchUsers).mockResolvedValue({ error: "Search stopped" } as any);
+    const command = { loginName: " a@b.com " };
+
+    expect(await sendLoginname(command)).toEqual({ error: "Search stopped" });
+    expect(zitadel.searchUsers).toHaveBeenCalledWith(expect.objectContaining({ searchValue: "a@b.com" }));
+    expect(command.loginName).toBe(" a@b.com ");
+  });
+
+  test.each(["a @b.com", "a\tb.com", "a\nb.com", "a\u00a0@b.com"])(
+    "refuses inner whitespace before lookup: %j",
+    async (loginName) => {
+      const zitadel = await import("@/lib/server/zitadel");
+      const { decoyOtpRedirect } = await import("@/lib/azdigi/decoy");
+
+      expect(await sendLoginname({ loginName })).toEqual({ error: "errors.whitespace" });
+      expect(zitadel.getLoginSettings).not.toHaveBeenCalled();
+      expect(zitadel.searchUsers).not.toHaveBeenCalled();
+      expect(decoyOtpRedirect).not.toHaveBeenCalled();
+    },
+  );
+
+  test("an eligible customer with only the email-code method goes to /otp/email, not to the invite page", async () => {
+    const zitadel = await import("@/lib/server/zitadel");
+    // upstream sends a user without password / passkey / IdP to /verify; OTP-first must be decided first
+    vi.mocked(zitadel.listAuthenticationMethodTypes).mockResolvedValue({
+      authMethodTypes: [AuthenticationMethodType.OTP_EMAIL],
+    } as any);
+
+    const result = await sendLoginname({ loginName: "khach@example.vn", requestId: "oidc_1" });
+
+    expect(result).toEqual({
+      redirect: "/otp/email?loginName=khach%40example.vn&altPassword=true&organization=customers&requestId=oidc_1",
+    });
+    expect(zitadel.getLoginSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ organization: "customers", fresh: true }),
+    );
+  });
+
+  test("outside the OTP-first organisation the same account takes the stock path", async () => {
+    const zitadel = await import("@/lib/server/zitadel");
+    const orgLookup = await import("@/lib/azdigi/org-lookup");
+    vi.mocked(orgLookup.isOtpFirstOrg).mockResolvedValue(false);
+    vi.mocked(zitadel.listAuthenticationMethodTypes).mockResolvedValue({
+      authMethodTypes: [AuthenticationMethodType.OTP_EMAIL],
+    } as any);
+
+    const result = await sendLoginname({ loginName: "khach@example.vn" });
+
+    expect((result as { redirect?: string }).redirect).toMatch(/^\/verify\?/);
+  });
+
+  test("a locked user gets the lockout message and no session", async () => {
+    const zitadel = await import("@/lib/server/zitadel");
+    const { createSessionAndUpdateCookie } = await import("@/lib/server/session-cookie");
+    vi.mocked(zitadel.searchUsers).mockResolvedValue({ result: [{ ...customer, state: UserState.LOCKED }] } as any);
+
+    expect(await sendLoginname({ loginName: "khach@example.vn" })).toEqual({ error: "errors.userLocked", locked: true });
+    expect(createSessionAndUpdateCookie).not.toHaveBeenCalled();
+  });
+
+  test("a lone second factor cannot start a sign-in outside OTP-first", async () => {
+    const zitadel = await import("@/lib/server/zitadel");
+    const orgLookup = await import("@/lib/azdigi/org-lookup");
+    vi.mocked(orgLookup.isOtpFirstOrg).mockResolvedValue(false);
+    vi.mocked(zitadel.listAuthenticationMethodTypes).mockResolvedValue({
+      authMethodTypes: [AuthenticationMethodType.PASSWORD, AuthenticationMethodType.TOTP],
+    } as any);
+    // with a password the stock path applies
+    expect(((await sendLoginname({ loginName: "khach@example.vn" })) as { redirect?: string }).redirect).toMatch(
+      /^\/password\?/,
+    );
+
+    vi.mocked(zitadel.listAuthenticationMethodTypes).mockResolvedValue({
+      authMethodTypes: [AuthenticationMethodType.PASSKEY, AuthenticationMethodType.TOTP],
+    } as any);
+    vi.mocked(zitadel.getLoginSettings).mockResolvedValue({
+      allowLocalAuthentication: true,
+      passkeysType: PasskeysType.NOT_ALLOWED,
+    } as any);
+    expect(await sendLoginname({ loginName: "khach@example.vn" })).toEqual({ error: "errors.noUsableAuthMethod" });
+  });
+
+  test("an unknown name in a customer context gets the decoy email-code page, never 'user not found'", async () => {
+    const zitadel = await import("@/lib/server/zitadel");
+    const { decoyOtpRedirect } = await import("@/lib/azdigi/decoy");
+    vi.mocked(zitadel.searchUsers).mockResolvedValue({ result: [] } as any);
+    vi.mocked(decoyOtpRedirect).mockResolvedValue({ redirect: "/otp/email?loginName=ghost%40example.vn&altPassword=true" });
+
+    expect(await sendLoginname({ loginName: "ghost@example.vn", organization: "customers" })).toEqual({
+      redirect: "/otp/email?loginName=ghost%40example.vn&altPassword=true",
     });
   });
 });

@@ -866,3 +866,52 @@ describe("checkMFAFactors", () => {
     expect(result).toBeUndefined();
   });
 });
+
+describe("checkMFAFactors in an OTP-first organisation (AZDIGI)", () => {
+  const session = {
+    factors: { user: { loginName: "a@b.c", organizationId: "o1" }, password: { verifiedAt: {} } },
+  } as any;
+
+  it("does not demand the code channels (email, Zalo/SMS) after a password", async () => {
+    const res = await checkMFAFactors(
+      {} as any,
+      session,
+      undefined,
+      [AuthenticationMethodType.OTP_EMAIL, AuthenticationMethodType.OTP_SMS],
+      undefined,
+      undefined,
+      {
+        otpFirstOrg: true,
+      },
+    );
+    expect(res).toBeUndefined();
+  });
+
+  it("still demands a TOTP the customer set up", async () => {
+    const res = await checkMFAFactors(
+      {} as any,
+      session,
+      undefined,
+      [AuthenticationMethodType.OTP_SMS, AuthenticationMethodType.TOTP],
+      undefined,
+      undefined,
+      {
+        otpFirstOrg: true,
+      },
+    );
+    expect(res).toEqual({ redirect: expect.stringContaining("/otp/time-based?") });
+  });
+
+  it("outside OTP-first organisations an OTP_SMS factor is still a second factor", async () => {
+    const res = await checkMFAFactors(
+      {} as any,
+      session,
+      undefined,
+      [AuthenticationMethodType.OTP_SMS],
+      undefined,
+      undefined,
+      {},
+    );
+    expect(res).toEqual({ redirect: expect.stringContaining("/otp/sms?") });
+  });
+});

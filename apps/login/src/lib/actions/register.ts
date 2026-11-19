@@ -1,6 +1,8 @@
 "use server";
 
 import { completeFlowOrGetUrl } from "@/lib/actions/flow";
+import { registrationOrgId } from "@/lib/azdigi/org-lookup";
+import { sendVerificationOnce } from "@/lib/azdigi/verification-mail";
 import { getBindingIdCookie } from "@/lib/server/fingerprint";
 import { isIdpFlowProofValid } from "@/lib/server/idp-flow-proof";
 import { createLogger } from "@/lib/server/logger";
@@ -58,8 +60,11 @@ type RegisterUserCommand = {
   firstName: string;
   lastName: string;
   password?: string;
+  /** AZDIGI: ignored, self-registration always lands in the organisation named by AZDIGI_REGISTER_ORG_NAME */
   organization: string;
   requestId?: string;
+  /** AZDIGI: "otp" registers without password or passkey; the email code becomes the first factor after verification */
+  method?: "otp" | "passkey" | "password";
 };
 
 export type RegisterUserResponse = {
@@ -67,14 +72,33 @@ export type RegisterUserResponse = {
   sessionId: string;
   factors: Factors | undefined;
 };
+/** AZDIGI: an email is the login name; a pasted address keeps no outer whitespace and may hold none inside. */
+async function emailWhitespaceError(email: unknown): Promise<string | undefined> {
+  if (typeof email === "string" && !/\s/.test(email)) return undefined;
+  const t = await getTranslations("loginname");
+  return t("errors.whitespace");
+}
+
 export async function registerUser(
   command: RegisterUserCommand,
 ): Promise<{ error: string } | { redirect: string } | { samlData: { url: string; fields: Record<string, string> } }> {
   const t = await getTranslations("register");
+  command = { ...command, email: typeof command.email === "string" ? command.email.trim() : command.email };
+  const whitespace = await emailWhitespaceError(command.email);
+  if (whitespace) return { error: whitespace };
   const _headers = await headers();
   const { serviceConfig } = getServiceConfig(_headers);
 
-  const loginSettings = await getLoginSettings({ serviceConfig, organization: command.organization });
+  // AZDIGI: the client never chooses the organisation, and its policy is read fresh before anything is created
+  const organization = await registrationOrgId(serviceConfig);
+  if (!organization) {
+    return { error: t("errors.registerNotAllowed") };
+  }
+  if (command.method === "otp") {
+    command = { ...command, password: undefined };
+  }
+
+  const loginSettings = await getLoginSettings({ serviceConfig, organization, fresh: true });
 
   if (!loginSettings) {
     return { error: t("errors.couldNotGetLoginSettings") };
@@ -94,7 +118,7 @@ export async function registerUser(
     firstName: command.firstName,
     lastName: command.lastName,
     password: command.password ? command.password : undefined,
-    organization: command.organization,
+    organization,
   }).catch((error) => {
     logger.error("Failed to create user", { error });
     return null;
@@ -140,6 +164,16 @@ export async function registerUser(
 
     if (command.requestId) {
       params.append("requestId", command.requestId);
+    }
+
+    // AZDIGI: email-code registration: verify the address first; sendVerification then grants otp_email and the policy
+    // sends the user to /otp/email (no passkey, no password)
+    if (command.method === "otp") {
+      params.set("userId", session.factors.user.id);
+      if (await sendVerificationOnce({ userId: session.factors.user.id, isInvite: false, requestId: command.requestId })) {
+        params.set("codeSent", "true");
+      }
+      return { redirect: "/verify?" + params };
     }
 
     // Set verification cookie for users registering with passkey (no password)
@@ -210,6 +244,9 @@ export async function registerUserAndLinkToIDP(
   command: RegisterUserAndLinkToIDPommand,
 ): Promise<{ error: string } | { redirect: string } | { samlData: { url: string; fields: Record<string, string> } }> {
   const t = await getTranslations("register");
+  command = { ...command, email: typeof command.email === "string" ? command.email.trim() : command.email };
+  const whitespace = await emailWhitespaceError(command.email);
+  if (whitespace) return { error: whitespace };
 
   const _headers = await headers();
   const { serviceConfig } = getServiceConfig(_headers);

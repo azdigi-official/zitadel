@@ -50,7 +50,8 @@
       "localAuthenticationNotAllowed": "¡La autenticación local no está permitida! Contacte con su administrador para más información.",
       "passkeysNotAllowed": "Las passkeys no están permitidas. Contacte con su administrador para más información.",
       "couldNotFindIdentityProvider": "No se pudo encontrar el proveedor de identidad.",
-      "userNotActive": "El usuario no está activo. Contacte con su administrador para más información."
+      "userNotActive": "El usuario no está activo. Contacte con su administrador para más información.",
+      "whitespace": "El nombre de usuario o correo electrónico no debe contener espacios en blanco."
     }
   },
   "zitadel": {

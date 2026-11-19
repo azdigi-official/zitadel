@@ -1,7 +1,7 @@
 "use server";
 
+import { enrolmentAuthorizationError } from "@/lib/azdigi/enrolment-guard";
 import { getSessionCookieById } from "@/lib/server/cookies";
-import { getEnrollmentAuthorizationError } from "@/lib/server/enrollment-guard";
 import { isClassifiedError } from "@/lib/server/grpc/interceptors/error-classification";
 import { createLogger } from "@/lib/server/logger";
 import { getServiceConfig } from "@/lib/server/service-url";
@@ -43,7 +43,12 @@ export async function addOTP(command: AddOTPCommand): Promise<{ error: string } 
 
   // Enrollment must be authorized: a bare identify-only session (only the user factor set)
   // must not be able to attach a new authenticator to the account (GHSA-45f2-5q3r-xgg6).
-  const enrollmentError = await getEnrollmentAuthorizationError({ serviceConfig, session: session.session, userId });
+  const enrollmentError = await enrolmentAuthorizationError({
+    serviceConfig,
+    session: session.session,
+    userId,
+    kind: "code",
+  });
   if (enrollmentError) {
     return { error: enrollmentError };
   }

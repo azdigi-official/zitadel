@@ -50,7 +50,8 @@
       "localAuthenticationNotAllowed": "Uwierzytelnianie lokalne nie jest dozwolone! Skontaktuj się z administratorem, aby uzyskać więcej informacji.",
       "passkeysNotAllowed": "Klucze dostępu są niedozwolone! Skontaktuj się z administratorem, aby uzyskać więcej informacji.",
       "couldNotFindIdentityProvider": "Nie udało się znaleźć dostawcy tożsamości.",
-      "userNotActive": "Użytkownik jest nieaktywny. Skontaktuj się z administratorem, aby uzyskać więcej informacji."
+      "userNotActive": "Użytkownik jest nieaktywny. Skontaktuj się z administratorem, aby uzyskać więcej informacji.",
+      "whitespace": "Nazwa logowania lub adres e-mail nie może zawierać białych znaków."
     }
   },
   "zitadel": {

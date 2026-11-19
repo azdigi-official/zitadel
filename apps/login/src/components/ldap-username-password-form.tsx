@@ -39,6 +39,8 @@ export function LDAPUsernamePasswordForm({
   });
 
   const t = useTranslations("ldap");
+  // AZDIGI: login names never contain whitespace (same rule as the username form)
+  const tLoginname = useTranslations("loginname");
 
   const [error, setError] = useState<string>("");
 
@@ -52,7 +54,7 @@ export function LDAPUsernamePasswordForm({
 
     const response = await createNewSessionForLDAP({
       idpId: idpId,
-      username: values.loginName,
+      username: values.loginName.trim(),
       password: values.password,
       link: link,
       requestId,
@@ -87,8 +89,13 @@ export function LDAPUsernamePasswordForm({
         autoCorrect="off"
         spellCheck={false}
         autoFocus
-        {...register("loginName", { required: t("required.username") })}
+        {...register("loginName", {
+          required: t("required.username"),
+          setValueAs: (value: string) => value.trim(),
+          validate: (value) => !/\s/.test(value.trim()) || tLoginname("errors.whitespace"),
+        })}
         label={t("labels.username")}
+        error={formState.errors.loginName?.message}
         data-testid="username-text-input"
       />
 

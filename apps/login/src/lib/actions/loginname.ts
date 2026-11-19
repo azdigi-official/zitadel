@@ -1,11 +1,18 @@
 "use server";
 
+import { clientIpFromHeaders } from "@/lib/azdigi/client-ip";
+import { decoyOtpRedirect, withMinimumDuration } from "@/lib/azdigi/decoy";
+import { estimateUnlockAt, orgKindFromSettings } from "@/lib/azdigi/lockout";
+import { isOtpFirstOrg } from "@/lib/azdigi/org-lookup";
+import { decideOtpFirst, otpFirstAlternatives, otpFirstParams } from "@/lib/azdigi/otp-first";
+import { limiters } from "@/lib/azdigi/rate-limit";
+import { sendVerificationOnce } from "@/lib/azdigi/verification-mail";
 import { idpTypeToIdentityProviderType, idpTypeToSlug } from "@/lib/idp";
 import { equalsIgnoreCase } from "@/lib/server/auth-utils";
 import { addIdpFlowProof } from "@/lib/server/fingerprint";
 import { isClassifiedError } from "@/lib/server/grpc/interceptors/error-classification";
 import { createLogger } from "@/lib/server/logger";
-import { create } from "@zitadel/client";
+import { create, timestampDate } from "@zitadel/client";
 import { ChecksSchema } from "@zitadel/proto/zitadel/session/v2/session_service_pb";
 import { AuthenticationMethodType } from "@zitadel/proto/zitadel/user/v2/user_service_pb";
 import { getTranslations } from "next-intl/server";
@@ -14,7 +21,6 @@ import { headers } from "next/headers";
 import { getPublicHost } from "@/lib/server/host";
 import { getServiceConfig } from "@/lib/server/service-url";
 import { createSessionAndUpdateCookie } from "@/lib/server/session-cookie";
-import { trySendVerification } from "@/lib/server/verification-email";
 import {
   getActiveIdentityProviders,
   getIDPByID,
@@ -42,11 +48,25 @@ export type SendLoginnameCommand = {
 
 const ORG_SUFFIX_REGEX = /(?<=@)(.+)/;
 
+/** AZDIGI: answers take a minimum time (decoy.ts) so a fast "unknown" or "known" answer does not stand out. */
 export async function sendLoginname(command: SendLoginnameCommand) {
+  return withMinimumDuration(() => sendLoginnameNow(command));
+}
+
+async function sendLoginnameNow(command: SendLoginnameCommand) {
+  const t = await getTranslations("loginname");
+
+  // AZDIGI: reject whitespace before the lookup so invalid input cannot enter the registration or decoy paths
+  if (typeof command.loginName !== "string") {
+    return { error: t("errors.couldNotSearchUsers") };
+  }
+  command = { ...command, loginName: command.loginName.trim() };
+  if (/\s/.test(command.loginName)) {
+    return { error: t("errors.whitespace") };
+  }
+
   const _headers = await headers();
   const { serviceConfig } = getServiceConfig(_headers);
-
-  const t = await getTranslations("loginname");
 
   const loginSettingsByContext = await getLoginSettings({ serviceConfig, organization: command.organization });
 
@@ -96,7 +116,17 @@ export async function sendLoginname(command: SendLoginnameCommand) {
     logger.debug("No users found, will proceed with org discovery");
   }
 
-  const preventUserEnumeration = (organization: string | undefined) => {
+  const preventUserEnumeration = async (organization: string | undefined) => {
+    // AZDIGI: a customer (or context-free) entry never says "user not found": the decoy email-code page looks like a
+    // real customer account. It comes first because the context-free settings are the default organisation's.
+    const decoy = await decoyOtpRedirect(serviceConfig, {
+      loginName: command.loginName,
+      contextOrg: organization,
+      requestId: command.requestId,
+    });
+    if (decoy) {
+      return decoy;
+    }
     if (ignoreUnknownUsernames) {
       logger.debug("ignoreUnknownUsernames is true, redirecting to password");
       const paramsPasswordDefault = new URLSearchParams({
@@ -278,7 +308,12 @@ export async function sendLoginname(command: SendLoginnameCommand) {
     const user = users[0];
     const userId = users[0].userId;
 
-    const userLoginSettings = await getLoginSettings({ serviceConfig, organization: user.details?.resourceOwner });
+    // AZDIGI: fresh, this decides the first factor
+    const userLoginSettings = await getLoginSettings({
+      serviceConfig,
+      organization: user.details?.resourceOwner,
+      fresh: true,
+    });
 
     const humanUser = users[0].type.case === "human" ? users[0].type.value : undefined;
 
@@ -301,6 +336,22 @@ export async function sendLoginname(command: SendLoginnameCommand) {
       ) {
         return preventUserEnumeration(command.organization);
       }
+    }
+
+    // AZDIGI: a locked user gets the lockout message on this screen (no session, no code); the expected unlock time
+    // only while the unlock worker is on. With enumeration protection the account is not revealed.
+    if (user.state === UserState.LOCKED) {
+      if (ignoreUnknownUsernames || userLoginSettings?.ignoreUnknownUsernames) {
+        return preventUserEnumeration(command.organization);
+      }
+      const unlockAt = estimateUnlockAt(
+        user.details?.changeDate ? timestampDate(user.details.changeDate) : undefined,
+        orgKindFromSettings(userLoginSettings),
+      );
+      return {
+        error: unlockAt ? t("errors.userLockedUntil", { time: unlockAt }) : t("errors.userLocked"),
+        locked: true,
+      };
     }
 
     // Only create a session (and its cookie) when enumeration protection does not
@@ -375,6 +426,32 @@ export async function sendLoginname(command: SendLoginnameCommand) {
       userId: session?.factors?.user?.id ?? userId,
     });
 
+    // AZDIGI: email code as the first factor for eligible users (allow-listed organisation whose fresh policy does not
+    // force MFA, OTP_EMAIL method, verified email, active user); everyone else takes the stock path. This must come
+    // before the "no primary method" check below: an OTP-first customer has no password, passkey or IdP.
+    const otpFirst = decideOtpFirst({
+      otpFirstOrg: await isOtpFirstOrg(serviceConfig, user.details?.resourceOwner ?? organization),
+      loginSettings: userLoginSettings,
+      authMethods: methods.authMethodTypes,
+      emailVerified: !!humanUser?.email?.isVerified,
+      userState: user.state,
+    });
+
+    if (otpFirst.eligible) {
+      return {
+        redirect:
+          "/otp/email?" +
+          otpFirstParams({
+            // the account's own login name: the email-code page finds its session cookie by it, and the decoy for
+            // unknown names shows the same normalised form
+            loginName: session?.factors?.user?.loginName ?? user.preferredLoginName ?? command.loginName,
+            organization,
+            requestId: command.requestId,
+            ...otpFirstAlternatives(userLoginSettings),
+          }),
+      };
+    }
+
     const hasPrimaryMethod =
       methods.authMethodTypes?.some(
         (m: AuthenticationMethodType) =>
@@ -389,13 +466,17 @@ export async function sendLoginname(command: SendLoginnameCommand) {
         isVerified: humanUser?.email?.isVerified,
       });
 
-      // If the user's email is not verified, they likely already have a code from the
-      // initial verification email. Auto-sending a new one here invalidates their existing code
-      // and causes confusion. Only auto-send if the email is already verified.
-      const shouldSend = humanUser?.email?.isVerified === true;
-
-      const codeSent = shouldSend
-        ? await trySendVerification({
+      // AZDIGI: mail the invitation whether or not the email is verified, as the fork always did. Upstream only sends
+      // for a verified email, assuming an unverified one already holds a code from its creation; a customer provisioned
+      // from WHMCS (foundation customer-provision) was created without any mail and would never get one. The once a
+      // minute rule (sendVerificationOnce) keeps a repeated step, or every typed login name, from mailing a new code that
+      // voids the one just sent. One client is also held to its code budget across accounts (the per-IP limit of code
+      // requests; the IP comes only from the proxy's trusted header): typing a list of addresses must not mail them all.
+      // Over the budget nothing is sent and the page offers "resend", which answers with the rate-limit message.
+      const ip = clientIpFromHeaders(_headers);
+      const withinIpBudget = ip ? limiters.otpSendPerIp.hit(`ip:${ip}`).allowed : true;
+      const codeSent = withinIpBudget
+        ? await sendVerificationOnce({
             userId: session?.factors?.user?.id ?? user.userId,
             isInvite: true,
             requestId: command.requestId,
@@ -495,6 +576,13 @@ export async function sendLoginname(command: SendLoginnameCommand) {
           // no single identity provider could be resolved, let the user choose one
           return resp ?? redirectToIDPSelection(organization);
         }
+
+        default:
+          // AZDIGI: a lone second factor (TOTP, SMS/email code, U2F) cannot start a sign-in outside OTP-first
+          if (ignoreUnknownUsernames) {
+            return preventUserEnumeration(command.organization);
+          }
+          return { error: t("errors.noUsableAuthMethod") };
       }
     } else {
       // prefer passkey in favor of other methods
@@ -562,6 +650,12 @@ export async function sendLoginname(command: SendLoginnameCommand) {
           error: t("errors.localAuthenticationNotAllowed"),
         };
       }
+
+      // AZDIGI: only second factors on the user: nothing can start a sign-in outside OTP-first
+      if (ignoreUnknownUsernames) {
+        return preventUserEnumeration(command.organization);
+      }
+      return { error: t("errors.noUsableAuthMethod") };
     }
   }
 
@@ -634,6 +728,17 @@ export async function sendLoginname(command: SendLoginnameCommand) {
       logger.debug("IDP redirect failed and local auth not allowed, returning user not found");
       return preventUserEnumeration(discoveredOrganization);
     }
+  }
+
+  // AZDIGI: no "register with this email?" for an unknown name in a customer context: that page would tell the name is
+  // free; the decoy email-code page looks like a real account instead (registration stays reachable from the login page)
+  const decoy = await decoyOtpRedirect(serviceConfig, {
+    loginName: command.loginName,
+    contextOrg: discoveredOrganization,
+    requestId: command.requestId,
+  });
+  if (decoy) {
+    return decoy;
   }
 
   if (effectiveLoginSettings?.allowRegister && effectiveLoginSettings?.allowLocalAuthentication) {

@@ -2,8 +2,9 @@
 
 import { completeFlowOrGetUrl } from "@/lib/actions/flow";
 import { updateOrCreateSession } from "@/lib/actions/session";
+import { ENROLMENT_REFUSED, enrolmentAuthorizationError } from "@/lib/azdigi/enrolment-guard";
+import { rememberCodeStartedRegistration, wasStartedWithCode } from "@/lib/azdigi/passkey-registration-proof";
 import { getSessionCookieById } from "@/lib/server/cookies";
-import { getEnrollmentAuthorizationError } from "@/lib/server/enrollment-guard";
 import { getPublicHost } from "@/lib/server/host";
 import { createLogger } from "@/lib/server/logger";
 import { getServiceConfig } from "@/lib/server/service-url";
@@ -77,10 +78,12 @@ export async function registerPasskeyLink(
 
     currentUserId = session.session.factors.user.id;
 
-    const enrollmentError = await getEnrollmentAuthorizationError({
+    // AZDIGI: a passkey satisfies the login policy on its own (lib/azdigi/enrolment-guard.ts)
+    const enrollmentError = await enrolmentAuthorizationError({
       serviceConfig,
       session: session.session,
       userId: currentUserId,
+      kind: "strong",
     });
 
     if (enrollmentError) {
@@ -151,7 +154,12 @@ export async function registerPasskeyLink(
     throw new Error("Could not determine user");
   }
 
-  return registerPasskey({ serviceConfig, userId: currentUserId, code: registerCode, domain: hostname });
+  const registration = await registerPasskey({ serviceConfig, userId: currentUserId, code: registerCode, domain: hostname });
+  // AZDIGI: Zitadel accepted the emailed code; only this browser may finish this registration without a session
+  if (!command.sessionId && registration?.passkeyId) {
+    await rememberCodeStartedRegistration(currentUserId, registration.passkeyId);
+  }
+  return registration;
 }
 
 export async function verifyPasskeyRegistration(command: VerifyPasskeyCommand) {
@@ -194,11 +202,30 @@ export async function verifyPasskeyRegistration(command: VerifyPasskeyCommand) {
       throw new Error("Could not get session");
     }
 
+    // AZDIGI: finishing a registration needs what starting it needs (lib/azdigi/enrolment-guard.ts)
+    const enrollmentError = await enrolmentAuthorizationError({
+      serviceConfig,
+      session: session?.session,
+      userId,
+      kind: "strong",
+    });
+    if (enrollmentError) {
+      throw new Error(enrollmentError);
+    }
+
     currentUserId = userId;
     loginName = session?.session?.factors?.user?.loginName;
   } else {
     // UserId-based flow
     currentUserId = command.userId!;
+
+    // AZDIGI: without a session, only a registration this browser started with the emailed code
+    if (!(await wasStartedWithCode(currentUserId, command.passkeyId))) {
+      logger.warn("passkey registration refused: not started with a registration code in this browser", {
+        userId: currentUserId,
+      });
+      throw new Error(ENROLMENT_REFUSED);
+    }
 
     // Verify user exists
     const userResponse = await getUserByID({ serviceConfig, userId: currentUserId });

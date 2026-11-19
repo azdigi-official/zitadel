@@ -1,13 +1,12 @@
 import "server-only";
 
+import { guardedCreateCallback, isPolicyRejected, redirectForVerdict } from "@/lib/azdigi/issue";
 import { isSafeRedirectUri } from "@/lib/client-utils";
 import { Cookie } from "@/lib/server/cookies";
 import { isClassifiedError } from "@/lib/server/grpc/interceptors/error-classification";
-import { reauthenticate } from "@/lib/server/reauthenticate";
-import { isSessionValid } from "@/lib/server/session";
-import { createCallback, getLoginSettings, ServiceConfig } from "@/lib/server/zitadel";
-import { Code, create } from "@zitadel/client";
-import { CreateCallbackRequestSchema, SessionSchema } from "@zitadel/proto/zitadel/oidc/v2/oidc_service_pb";
+import { checkSessionPolicy } from "@/lib/server/session";
+import { getLoginSettings, ServiceConfig } from "@/lib/server/zitadel";
+import { Code } from "@zitadel/client";
 import { Session } from "@zitadel/proto/zitadel/session/v2/session_pb";
 
 type LoginWithOIDCAndSession = {
@@ -29,14 +28,12 @@ export async function loginWithOIDCAndSession({
   const selectedSession = sessions.find((s) => s.id === sessionId);
 
   if (selectedSession && selectedSession.id) {
-    const isValid = await isSessionValid({ serviceConfig, session: selectedSession });
+    // AZDIGI: an invalid session is never linked to the auth request; refuse with the precise next step of the
+    // organisation's policy (lib/azdigi/policy.ts). The token wrapper below re-checks with the session token anyway.
+    const verdict = await checkSessionPolicy({ serviceConfig, session: selectedSession });
 
-    console.log("Session is valid:", isValid);
-
-    if (!isValid) {
-      // An invalid session (e.g. no verified factor, MFA missing or expired) must never be
-      // linked to the auth request. Send the user to re-authenticate, or fail closed.
-      return (await reauthenticate(selectedSession, `oidc_${authRequest}`)) ?? { error: "Session not found or invalid" };
+    if (!verdict.ok) {
+      return { redirect: redirectForVerdict(verdict, selectedSession, `oidc_${authRequest}`) };
     }
 
     const cookie = sessionCookies.find((cookie) => cookie.id === selectedSession?.id);
@@ -48,16 +45,7 @@ export async function loginWithOIDCAndSession({
       };
 
       try {
-        const { callbackUrl } = await createCallback({
-          serviceConfig,
-          req: create(CreateCallbackRequestSchema, {
-            authRequestId: authRequest,
-            callbackKind: {
-              case: "session",
-              value: create(SessionSchema, session),
-            },
-          }),
-        });
+        const { callbackUrl } = await guardedCreateCallback({ serviceConfig, authRequestId: authRequest, session });
         if (callbackUrl) {
           if (!isSafeRedirectUri(callbackUrl)) {
             console.warn("loginWithOIDCAndSession: Blocked unsafe OIDC callback URL:", callbackUrl);
@@ -68,6 +56,9 @@ export async function loginWithOIDCAndSession({
           return { error: "An error occurred!" };
         }
       } catch (error: unknown) {
+        if (isPolicyRejected(error)) {
+          return { redirect: redirectForVerdict(error.verdict, error.session ?? selectedSession, `oidc_${authRequest}`) };
+        }
         // handle already handled gracefully as these could come up if old emails with requestId are used (reset password, register emails etc.)
         console.error(error);
         if (isClassifiedError(error) && error.code === Code.FailedPrecondition) {

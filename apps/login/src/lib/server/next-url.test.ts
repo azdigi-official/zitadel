@@ -1,4 +1,4 @@
-import { getNextUrl } from "@/lib/server/next-url";
+import { getNextUrl, resolveRedirectUri } from "@/lib/server/next-url";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
 // Mock next/headers
@@ -39,8 +39,14 @@ describe("getNextUrl", () => {
     expect(result).toBe("https://my-host.com/dashboard");
   });
 
+  // AZDIGI: without DEFAULT_REDIRECT_URI, getNextUrl ends a flow without an application at /account
+  // (lib/azdigi/account-next-url.test.ts); upstream's fallback order stays in resolveRedirectUri
+  test("AZDIGI: without the env override a flow without an application ends at the account page", async () => {
+    expect(await getNextUrl(command, "https://settings.com")).toBe("/account?loginName=test-user");
+  });
+
   test("should use defaultRedirectUri if env is NOT set", async () => {
-    const result = await getNextUrl(command, "https://settings.com");
+    const result = await resolveRedirectUri(command, "https://settings.com");
     expect(result).toBe("https://settings.com");
   });
 
@@ -48,7 +54,7 @@ describe("getNextUrl", () => {
     const { headers } = await import("next/headers");
     vi.mocked(headers).mockRejectedValue(new Error("No headers"));
 
-    const result = await getNextUrl(command);
+    const result = await resolveRedirectUri(command);
     expect(result).toBe("/signedin?loginName=test-user");
   });
 

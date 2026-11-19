@@ -6,6 +6,7 @@ import { AuthenticationMethodType } from "@zitadel/proto/zitadel/user/v2/user_se
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
 // Mock dependencies
+vi.mock("@/lib/azdigi/org-lookup", () => ({ isOtpFirstOrg: vi.fn(async () => false) }));
 vi.mock("next/headers", () => ({
   headers: vi.fn(),
 }));
@@ -332,7 +333,9 @@ describe("sendPassword", () => {
     });
 
     expect(result).toEqual({ redirect: "/next-page" });
-    expect(mockGetLoginSettings).toHaveBeenCalledTimes(2);
+    // context org, user org, and (AZDIGI) a fresh read of the user org for the second-factor decision
+    expect(mockGetLoginSettings).toHaveBeenCalledTimes(3);
+    expect(mockGetLoginSettings).toHaveBeenLastCalledWith(expect.objectContaining({ organization: "orgB", fresh: true }));
     expect(mockCheckMFAFactors).toHaveBeenCalledWith(
       expect.anything(),
       expect.anything(),
@@ -340,6 +343,7 @@ describe("sendPassword", () => {
       expect.anything(),
       "orgA",
       undefined,
+      { otpFirstOrg: false },
     );
   });
 });

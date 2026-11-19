@@ -2,6 +2,7 @@
 
 import { createLogger } from "@/lib/server/logger";
 import {
+  addOTPEmail,
   createInviteCode,
   getLoginSettings,
   getSession,
@@ -14,8 +15,11 @@ import {
 } from "@/lib/server/zitadel";
 
 import { completeFlowOrGetUrl } from "@/lib/actions/flow";
+import { clientIpFromHeaders } from "@/lib/azdigi/client-ip";
+import { enrolmentAuthorizationError } from "@/lib/azdigi/enrolment-guard";
+import { isOtpFirstOrg } from "@/lib/azdigi/org-lookup";
+import { claimVerifyPageSend, limiters } from "@/lib/azdigi/rate-limit";
 import { getSessionCookieByLoginName } from "@/lib/server/cookies";
-import { getEnrollmentAuthorizationError } from "@/lib/server/enrollment-guard";
 import { getPublicHostWithProtocol } from "@/lib/server/host";
 import { checkMFAFactors } from "@/lib/server/mfa-helper";
 import { getServiceConfig } from "@/lib/server/service-url";
@@ -46,10 +50,12 @@ export async function verifyTOTP(code: string, loginName?: string, organization?
     if (session?.factors?.user?.id) {
       // Enrollment must be authorized: a bare identify-only session must not be able to
       // activate a TOTP factor on the account (GHSA-45f2-5q3r-xgg6).
-      const enrollmentError = await getEnrollmentAuthorizationError({
+      // AZDIGI: an authenticator can satisfy the second factor on its own (lib/azdigi/enrolment-guard.ts)
+      const enrollmentError = await enrolmentAuthorizationError({
         serviceConfig,
         session,
         userId: session.factors.user.id,
+        kind: "strong",
       });
       if (enrollmentError) {
         return { error: enrollmentError };
@@ -137,8 +143,24 @@ export async function sendVerification(command: VerifyUserByEmailCommand) {
         m === AuthenticationMethodType.IDP,
     ) ?? false;
 
+  // AZDIGI: in the OTP-first organisation the email code is the first factor of a freshly verified customer: grant
+  // OTP_EMAIL (the address was just verified) and continue to /otp/email instead of the authenticator set-up
+  const otpFirstOrg = user.type?.case === "human" && (await isOtpFirstOrg(serviceConfig, user.details?.resourceOwner));
+  if (otpFirstOrg && !hasPrimaryMethod && !authMethodResponse.authMethodTypes.includes(AuthenticationMethodType.OTP_EMAIL)) {
+    const granted = await addOTPEmail({ serviceConfig, userId: user.userId })
+      .then(() => true)
+      .catch((error: unknown) => {
+        logger.warn("could not add the OTP_EMAIL method after verification", { userId: user.userId, error: String(error) });
+        return false;
+      });
+    if (granted) {
+      authMethodResponse.authMethodTypes = [...authMethodResponse.authMethodTypes, AuthenticationMethodType.OTP_EMAIL];
+    }
+  }
+  const otpFirstReady = otpFirstOrg && authMethodResponse.authMethodTypes.includes(AuthenticationMethodType.OTP_EMAIL);
+
   // if no primary auth methods are found on the user, redirect to set one up
-  if (!hasPrimaryMethod) {
+  if (!hasPrimaryMethod && !otpFirstReady) {
     if (!session) {
       const checks = create(ChecksSchema, {
         user: {
@@ -204,7 +226,8 @@ export async function sendVerification(command: VerifyUserByEmailCommand) {
     return { redirect: `/verify/success?${verifySuccessParams}` };
   }
 
-  const loginSettings = await getLoginSettings({ serviceConfig, organization: user.details?.resourceOwner });
+  // AZDIGI: fresh, these settings decide the next factor
+  const loginSettings = await getLoginSettings({ serviceConfig, organization: user.details?.resourceOwner, fresh: true });
 
   // redirect to mfa factor if user has one, or redirect to set one up
   const mfaFactorCheck = await checkMFAFactors(
@@ -214,9 +237,16 @@ export async function sendVerification(command: VerifyUserByEmailCommand) {
     authMethodResponse.authMethodTypes,
     command.organization,
     command.requestId,
+    { otpFirstOrg },
   );
 
   if (mfaFactorCheck?.redirect) {
+    // AZDIGI: presentation context only, the OTP page checks the live verified email before showing success
+    if (mfaFactorCheck.redirect.startsWith("/otp/email?")) {
+      const params = new URLSearchParams(mfaFactorCheck.redirect.split("?")[1]);
+      params.set("emailVerified", "true");
+      return { redirect: "/otp/email?" + params };
+    }
     return mfaFactorCheck;
   }
 
@@ -251,6 +281,19 @@ type resendVerifyEmailCommand = {
 export async function resendVerification(command: resendVerifyEmailCommand) {
   const t = await getTranslations("verify");
   const _headers = await headers();
+
+  // AZDIGI: a published action that mails any user id it is given, before sign-in. Every new code voids the previous
+  // one, so it is held to the client IP's code budget (the same limiter as code requests; the IP comes only from the
+  // proxy's trusted header) and to one mail per user and kind per minute, shared with the automatic send.
+  const ip = clientIpFromHeaders(_headers);
+  const perIp = ip ? limiters.otpSendPerIp.hit(`ip:${ip}`) : { allowed: true, retryAfterMs: 0 };
+  if (!perIp.allowed) {
+    return { error: t("errors.tooManyCodeRequests", { minutes: Math.max(1, Math.ceil(perIp.retryAfterMs / 60000)) }) };
+  }
+  if (!claimVerifyPageSend(command.userId, command.isInvite ? "invite" : "email")) {
+    return { error: t("errors.tooManyCodeRequests", { minutes: 1 }) };
+  }
+
   const { serviceConfig } = getServiceConfig(_headers);
   const hostWithProtocol = await getPublicHostWithProtocol(_headers);
 

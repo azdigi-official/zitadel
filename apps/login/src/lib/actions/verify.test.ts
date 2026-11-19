@@ -1,4 +1,7 @@
-import { sendVerification, verifyTOTP } from "@/lib/actions/verify";
+// AZDIGI: the action calls lib/azdigi/enrolment-guard.ts (upstream's guard plus the policy rule for strong methods);
+// the gate itself is tested in lib/azdigi/enrolment-guard.test.ts.
+import { resendVerification, sendVerification, verifyTOTP } from "@/lib/actions/verify";
+import { resetLimiters } from "@/lib/azdigi/rate-limit";
 import { trySendVerification } from "@/lib/server/verification-email";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
@@ -12,10 +15,11 @@ import {
   verifyEmail,
   sendEmailCode as zitadelSendEmailCode,
 } from "@/lib/server/zitadel";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 
 // Mock dependencies
 vi.mock("@/lib/server/zitadel", () => ({
+  addOTPEmail: vi.fn(),
   verifyEmail: vi.fn(),
   verifyInviteCode: vi.fn(),
   getUserByID: vi.fn(),
@@ -31,8 +35,11 @@ vi.mock("@/lib/server/session", () => ({
   loadMostRecentSession: vi.fn(),
 }));
 
-vi.mock("@/lib/server/enrollment-guard", () => ({
-  getEnrollmentAuthorizationError: vi.fn(),
+// AZDIGI: no OTP-first organisation unless a test says so
+vi.mock("@/lib/azdigi/org-lookup", () => ({ isOtpFirstOrg: vi.fn(async () => false) }));
+
+vi.mock("@/lib/azdigi/enrolment-guard", () => ({
+  enrolmentAuthorizationError: vi.fn(),
 }));
 
 vi.mock("next/headers", () => ({
@@ -376,7 +383,7 @@ describe("verifyTOTP", () => {
     mockLoadMostRecentSession = vi.mocked((await import("@/lib/server/session")).loadMostRecentSession);
     mockVerifyTOTPRegistration = vi.mocked((await import("@/lib/server/zitadel")).verifyTOTPRegistration);
     mockGetEnrollmentAuthorizationError = vi.mocked(
-      (await import("@/lib/server/enrollment-guard")).getEnrollmentAuthorizationError,
+      (await import("@/lib/azdigi/enrolment-guard")).enrolmentAuthorizationError,
     );
 
     mockLoadMostRecentSession.mockResolvedValue(totpSession);
@@ -394,6 +401,7 @@ describe("verifyTOTP", () => {
       serviceConfig: {},
       session: totpSession,
       userId: "victim-1",
+      kind: "strong",
     });
     expect(mockVerifyTOTPRegistration).not.toHaveBeenCalled();
   });
@@ -417,5 +425,107 @@ describe("verifyTOTP", () => {
 
     await expect(verifyTOTP("123456")).rejects.toThrow("No user id found in session.");
     expect(mockVerifyTOTPRegistration).not.toHaveBeenCalled();
+  });
+});
+
+describe("sendVerification in the OTP-first organisation (AZDIGI)", () => {
+  const customer = {
+    userId: "cust-1",
+    preferredLoginName: "khach@example.vn",
+    details: { resourceOwner: "customers" },
+    type: { case: "human", value: { email: { email: "khach@example.vn", isVerified: true } } },
+  };
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    const orgLookup = await import("@/lib/azdigi/org-lookup");
+    vi.mocked(orgLookup.isOtpFirstOrg).mockImplementation(async (_cfg, org) => org === "customers");
+    vi.mocked(verifyEmail).mockResolvedValue({} as any);
+    vi.mocked(getUserByID).mockResolvedValue({ user: customer } as any);
+    vi.mocked(getSessionCookieByLoginName).mockResolvedValue({ id: "s1", token: "t" } as any);
+    vi.mocked(getSession).mockResolvedValue({
+      session: { id: "s1", factors: { user: { id: "cust-1", loginName: "khach@example.vn", organizationId: "customers" } } },
+    } as any);
+  });
+
+  test("a freshly verified customer gets the email code as first factor and continues to /otp/email", async () => {
+    const zitadel = await import("@/lib/server/zitadel");
+    vi.mocked(listAuthenticationMethodTypes).mockResolvedValue({ authMethodTypes: [] } as any);
+    vi.mocked(zitadel.addOTPEmail).mockResolvedValue({} as any);
+
+    const result = await sendVerification({ userId: "cust-1", code: "123456", isInvite: false, requestId: "oidc_1" });
+
+    expect(zitadel.addOTPEmail).toHaveBeenCalledWith(expect.objectContaining({ userId: "cust-1" }));
+    expect((result as { redirect: string }).redirect).toMatch(/^\/otp\/email\?/);
+    expect((result as { redirect: string }).redirect).toContain("emailVerified=true");
+    expect((result as { redirect: string }).redirect).toContain("requestId=oidc_1");
+  });
+
+  test("when the method cannot be granted the stock authenticator set-up applies", async () => {
+    const zitadel = await import("@/lib/server/zitadel");
+    vi.mocked(listAuthenticationMethodTypes).mockResolvedValue({ authMethodTypes: [] } as any);
+    vi.mocked(zitadel.addOTPEmail).mockRejectedValue(new Error("denied"));
+
+    const result = await sendVerification({ userId: "cust-1", code: "123456", isInvite: false });
+
+    expect((result as { redirect: string }).redirect).toMatch(/^\/authenticator\/set\?/);
+  });
+
+  test("staff (not OTP-first) without a primary method still go to the authenticator set-up", async () => {
+    const zitadel = await import("@/lib/server/zitadel");
+    vi.mocked(getUserByID).mockResolvedValue({ user: { ...customer, details: { resourceOwner: "internal" } } } as any);
+    vi.mocked(listAuthenticationMethodTypes).mockResolvedValue({ authMethodTypes: [] } as any);
+
+    const result = await sendVerification({ userId: "cust-1", code: "123456", isInvite: false });
+
+    expect(zitadel.addOTPEmail).not.toHaveBeenCalled();
+    expect((result as { redirect: string }).redirect).toMatch(/^\/authenticator\/set\?/);
+  });
+});
+
+describe("resendVerification limits (AZDIGI)", () => {
+  const fromIp = (ip: string) => new Headers({ "cf-connecting-ip": ip });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetLimiters();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-19T03:00:00Z"));
+    vi.mocked(headers).mockResolvedValue(fromIp("203.0.113.7") as any);
+    vi.mocked(createInviteCode).mockResolvedValue({} as any);
+    vi.mocked(zitadelSendEmailCode).mockResolvedValue({} as any);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  test("one mail per user and kind per minute; the resend button works again once the minute has passed", async () => {
+    expect(await resendVerification({ userId: "u1", isInvite: true })).not.toHaveProperty("error");
+    expect(await resendVerification({ userId: "u1", isInvite: true })).toEqual({ error: "errors.tooManyCodeRequests" });
+    expect(createInviteCode).toHaveBeenCalledTimes(1);
+
+    vi.setSystemTime(new Date("2026-11-19T03:01:01Z"));
+    expect(await resendVerification({ userId: "u1", isInvite: true })).not.toHaveProperty("error");
+    expect(createInviteCode).toHaveBeenCalledTimes(2);
+  });
+
+  test("the minute is shared with the automatic send that led to /verify", async () => {
+    const { claimVerifyPageSend } = await import("@/lib/azdigi/rate-limit");
+    expect(claimVerifyPageSend("u2", "email")).toBe(true);
+    expect(await resendVerification({ userId: "u2", isInvite: false })).toEqual({ error: "errors.tooManyCodeRequests" });
+    expect(zitadelSendEmailCode).not.toHaveBeenCalled();
+  });
+
+  test("one client cannot mail many users: the per-IP code budget applies before Zitadel is called", async () => {
+    for (let i = 0; i < 20; i++) {
+      expect(await resendVerification({ userId: `victim-${i}`, isInvite: true })).not.toHaveProperty("error");
+    }
+    expect(await resendVerification({ userId: "victim-20", isInvite: true })).toEqual({
+      error: "errors.tooManyCodeRequests",
+    });
+    expect(createInviteCode).toHaveBeenCalledTimes(20);
+    // another client is not affected
+    vi.mocked(headers).mockResolvedValue(fromIp("198.51.100.9") as any);
+    expect(await resendVerification({ userId: "victim-20", isInvite: true })).not.toHaveProperty("error");
   });
 });

@@ -1,6 +1,15 @@
 "use server";
 
 import { completeFlowOrGetUrl } from "@/lib/actions/flow";
+import { clientIpFromHeaders } from "@/lib/azdigi/client-ip";
+import { decoyLoginName, decoyOrganization, withMinimumDuration } from "@/lib/azdigi/decoy";
+import { redirectForVerdict } from "@/lib/azdigi/issue";
+import { estimateUnlockAt, isLockedMessage, orgKindFromSettings } from "@/lib/azdigi/lockout";
+import { isOtpFirstOrg } from "@/lib/azdigi/org-lookup";
+import { decideOtpFirstForUser } from "@/lib/azdigi/otp-first";
+import { hasVerifiedFirstFactor } from "@/lib/azdigi/policy";
+import { limiters } from "@/lib/azdigi/rate-limit";
+import { sendVerificationOnce } from "@/lib/azdigi/verification-mail";
 import { getOTPSMSResendCooldownSeconds, getOTPSMSRetryAfterSeconds, SessionUpdatedError } from "@/lib/server/challenges";
 import {
   getMostRecentSessionCookie,
@@ -12,19 +21,19 @@ import { isClassifiedError } from "@/lib/server/grpc/interceptors/error-classifi
 import { getPublicHost, getPublicHostWithProtocol } from "@/lib/server/host";
 import { createLogger } from "@/lib/server/logger";
 import { shouldEnforceMFA } from "@/lib/server/mfa-helper";
-import { reauthenticate } from "@/lib/server/reauthenticate";
 import { getServiceConfig } from "@/lib/server/service-url";
-import { hasVerifiedPrimaryFactor, isSessionValid, loadSession } from "@/lib/server/session";
+import { hasVerifiedPrimaryFactor, loadSession, sessionVerdict } from "@/lib/server/session";
 import { createSessionAndUpdateCookie, setSessionAndUpdateCookie } from "@/lib/server/session-cookie";
 import {
   deleteSession,
   getLoginSettings,
   getSecuritySettings,
+  getUserByID,
   humanMFAInitSkipped,
   listUsers,
   ServiceConfig,
 } from "@/lib/server/zitadel";
-import { Code, create, Duration } from "@zitadel/client";
+import { Code, create, Duration, timestampDate } from "@zitadel/client";
 import {
   Challenges,
   RequestChallenges,
@@ -136,16 +145,16 @@ export async function continueWithSession({ sessionId, requestId }: ContinueWith
 
   const loginSettings = await getLoginSettings({ serviceConfig, organization: session.factors.user.organizationId });
 
-  // Validate session (including MFA) before completing the flow
-  const valid = await isSessionValid({ serviceConfig, session });
+  // Validate session (including MFA) before completing the flow. AZDIGI: a refused session continues at the step the
+  // policy names (e.g. /mfa while the password is still valid), never through a blind sendLoginname
+  const verdict = await sessionVerdict({ serviceConfig, session });
 
-  if (!valid) {
-    logger.warn("continueWithSession: session is not valid (e.g. MFA not completed), redirecting to re-authenticate", {
+  if (!verdict.ok) {
+    logger.warn("continueWithSession: session is not valid, redirecting to the missing step", {
       sessionId: session.id,
+      reason: verdict.reason,
     });
-
-    // Redirect user to re-authenticate (will route to MFA page if password is still valid)
-    return (await reauthenticate(session, requestId)) ?? { error: t("couldNotContinueSession") };
+    return { redirect: redirectForVerdict(verdict, session, requestId) };
   }
 
   if (requestId && session.id) {
@@ -233,7 +242,130 @@ function bindChallengesToHost(
   return bound;
 }
 
-export async function updateOrCreateSession(options: UpdateSessionCommand) {
+/**
+ * AZDIGI: one loose shape (all optional) for every answer, so the callers keep reading `error`, `factors`,
+ * `challenges` and `retryAfterSeconds`, and the AZDIGI answers can add `redirect`, `locked` and `failedAttempts`.
+ */
+export type UpdateSessionResult = {
+  error?: string;
+  redirect?: string;
+  locked?: boolean;
+  failedAttempts?: number;
+  sessionId?: string;
+  factors?: Session["factors"];
+  /** only the WebAuthn challenge is ever returned; OTP codes never leave the server */
+  challenges?: Pick<Challenges, "webAuthN">;
+  retryAfterSeconds?: number;
+};
+
+type Translate = Awaited<ReturnType<typeof getTranslations>>;
+
+const minutesUntil = (retryAfterMs: number) => Math.max(1, Math.ceil(retryAfterMs / 60000));
+
+/** AZDIGI: Zitadel's answers to a wrong, unavailable or locked code, as the messages the code screens show. */
+function otpErrorToResult(
+  error: unknown,
+  t: Translate,
+  remaining: number,
+  unlockAt?: Date,
+): UpdateSessionResult | undefined {
+  const fields =
+    typeof error === "object" && error !== null
+      ? (error as { rawMessage?: unknown; message?: unknown; failedAttempts?: unknown })
+      : {};
+  const raw =
+    typeof fields.rawMessage === "string"
+      ? fields.rawMessage
+      : typeof fields.message === "string"
+        ? fields.message
+        : typeof error === "string"
+          ? error
+          : "";
+  // observed on v4.11 (04/10/2026): "User is locked (COMMAND-S6h4R)" from the 4th wrong code, "Code is invalid (CODE-woT0xc)"
+  // before that; the session create for a locked user says "Errors.User.NotActive (SESSION-Gj4ko)"
+  if (isLockedMessage(raw)) {
+    return { error: unlockAt ? t("userLockedUntil", { time: unlockAt }) : t("userLocked"), locked: true };
+  }
+  if (/COMMAND-S34gh|Code not found|Errors\.User\.Code\.NotFound/i.test(raw)) {
+    return { error: t("codeUnavailable") };
+  }
+  const failedAttempts = typeof fields.failedAttempts === "number" ? fields.failedAttempts : undefined;
+  if (failedAttempts !== undefined || /Code is invalid|CODE-|Errors\.User\.Code|Errors\.User\.MFA\.OTP/i.test(raw)) {
+    return { error: t("codeInvalid", { remaining }), failedAttempts };
+  }
+  return undefined;
+}
+
+/** AZDIGI: the expected unlock time for a (just) locked user, or undefined while the unlock worker is off. */
+async function unlockEtaForUser(serviceConfig: ServiceConfig, userId: string) {
+  const user = await getUserByID({ serviceConfig, userId })
+    .then((r) => r.user)
+    .catch(() => undefined);
+  if (!user) {
+    return undefined;
+  }
+  const settings = await getLoginSettings({ serviceConfig, organization: user.details?.resourceOwner, fresh: true }).catch(
+    () => undefined,
+  );
+  return estimateUnlockAt(
+    user.details?.changeDate ? timestampDate(user.details.changeDate) : undefined,
+    orgKindFromSettings(settings),
+  );
+}
+
+function flowParams(loginName?: string, organization?: string, requestId?: string) {
+  const params = new URLSearchParams();
+  if (loginName) params.append("loginName", loginName);
+  if (organization) params.append("organization", organization);
+  if (requestId) params.append("requestId", requestId);
+  return params;
+}
+
+/** AZDIGI: the answers a real customer gets on the email-code page, for an unknown name (same limits, same messages). */
+function decoyOtpAnswer({
+  loginName,
+  organization,
+  tries,
+  ip,
+  t,
+}: {
+  loginName: string;
+  organization: string;
+  tries: boolean;
+  ip?: string;
+  t: Translate;
+}): UpdateSessionResult {
+  const name = decoyLoginName(loginName);
+  if (tries) {
+    const key = `decoy:${organization}:${name}`;
+    const attempts = limiters.otpVerifyPerUser.hit(key);
+    if (!attempts.allowed) {
+      return { error: t("tooManyCodeAttempts", { minutes: minutesUntil(attempts.retryAfterMs) }) };
+    }
+    return { error: t("codeInvalid", { remaining: limiters.otpVerifyPerUser.peek(key).remaining }) };
+  }
+  const perLogin = limiters.otpSendPerLogin.hit(`login:${organization}:${name}`);
+  const perIp = ip ? limiters.otpSendPerIp.hit(`ip:${ip}`) : { allowed: true, retryAfterMs: 0 };
+  if (!perLogin.allowed || !perIp.allowed) {
+    return {
+      error: t("tooManyCodeRequests", { minutes: minutesUntil(Math.max(perLogin.retryAfterMs, perIp.retryAfterMs)) }),
+    };
+  }
+  return {};
+}
+
+export async function updateOrCreateSession(options: UpdateSessionCommand): Promise<UpdateSessionResult> {
+  // AZDIGI: code requests and code checks take a minimum time (decoy.ts), real or decoy
+  const otp = !!(
+    options.challenges?.otpEmail ||
+    options.challenges?.otpSms ||
+    options.checks?.otpEmail ||
+    options.checks?.otpSms
+  );
+  return otp ? withMinimumDuration(() => updateOrCreateSessionNow(options)) : updateOrCreateSessionNow(options);
+}
+
+async function updateOrCreateSessionNow(options: UpdateSessionCommand): Promise<UpdateSessionResult> {
   const { loginName, sessionId, organization, requestId } = options;
   const checks = pickSecondFactorChecks(options.checks);
 
@@ -248,6 +380,8 @@ export async function updateOrCreateSession(options: UpdateSessionCommand) {
   }
 
   const challenges = bindChallengesToHost(options.challenges, getPublicHostWithProtocol(_headers), requestId);
+  const wantsOtpSend = !!(challenges?.otpEmail || challenges?.otpSms);
+  const triesOtpCode = !!(checks?.otpEmail || checks?.otpSms || checks?.totp);
 
   let recentSession = sessionId
     ? await getSessionCookieById({ sessionId })
@@ -260,13 +394,39 @@ export async function updateOrCreateSession(options: UpdateSessionCommand) {
       return { error: t("couldNotFindSession") };
     }
 
-    const checks = create(ChecksSchema, {
+    // AZDIGI: an email code as the first factor without a session cookie: only an account of the OTP-first organisation
+    // continues; any other name (unknown, staff, another organisation) gets the decoy answers (decoy.ts). Discovery is
+    // scoped to the requested organisation and the account's owner is verified before any challenge is issued.
+    if (!sessionId && (challenges?.otpEmail || checks?.otpEmail)) {
+      const ip = clientIpFromHeaders(_headers);
+      const otpOrg = await decoyOrganization(serviceConfig, organization);
+      if (checks?.otpEmail) {
+        return decoyOtpAnswer({ loginName, organization: otpOrg ?? organization ?? "", tries: true, ip, t });
+      }
+      // outside a customer context (no OTP-first or requested organisation) there is nothing to pretend
+      if (otpOrg || organization) {
+        const found = await listUsers({
+          serviceConfig,
+          loginName: decoyLoginName(loginName),
+          organizationId: organization,
+        }).catch(() => undefined);
+        const account = found?.details?.totalResult === BigInt(1) ? found.result[0] : undefined;
+        const owner = account?.details?.resourceOwner;
+        const realCustomer =
+          !!account && (!organization || owner === organization) && (await isOtpFirstOrg(serviceConfig, owner));
+        if (!realCustomer) {
+          return decoyOtpAnswer({ loginName, organization: otpOrg ?? organization ?? "", tries: false, ip, t });
+        }
+      }
+    }
+
+    const userChecks = create(ChecksSchema, {
       user: { search: { case: "loginName", value: loginName } },
     });
 
     // the challenges are requested by the setSession call below, requesting them here as well would send every code twice
     const result = await createSessionAndUpdateCookie({
-      checks,
+      checks: userChecks,
       requestId,
     }).catch((error) => {
       if (isClassifiedError(error) && error.isUserError) {
@@ -285,6 +445,82 @@ export async function updateOrCreateSession(options: UpdateSessionCommand) {
       return {
         error: t("couldNotFindSession"),
       };
+    }
+  }
+
+  let userId: string | undefined;
+
+  // AZDIGI: who may receive or try a code, and how often
+  if (wantsOtpSend || triesOtpCode) {
+    const current = await loadSession(serviceConfig, recentSession).catch(() => undefined);
+
+    if (!current?.factors?.user?.id) {
+      return { error: t("couldNotFindSession") };
+    }
+    const currentUserId = current.factors.user.id;
+    userId = currentUserId;
+    const organizationId = current.factors.user.organizationId;
+    if (organization && organization !== organizationId) {
+      return { error: t("couldNotFindSession") };
+    }
+
+    // the soft attempt limit comes first: a further wrong code would lock the user in Zitadel
+    if (triesOtpCode) {
+      const attempts = limiters.otpVerifyPerUser.hit(`user:${currentUserId}`);
+      if (!attempts.allowed) {
+        logger.warn("OTP verify rate limited", { userId: currentUserId, organizationId });
+        return { error: t("tooManyCodeAttempts", { minutes: minutesUntil(attempts.retryAfterMs) }) };
+      }
+    }
+
+    if (!hasVerifiedFirstFactor(current)) {
+      // an OTP as the first factor: only for eligible users of allow-listed organisations
+      const user = await getUserByID({ serviceConfig, userId: currentUserId })
+        .then((r) => r.user)
+        .catch(() => undefined);
+      const decision = await decideOtpFirstForUser({
+        serviceConfig,
+        userId: currentUserId,
+        organizationId,
+        humanUser: user?.type.case === "human" ? user.type.value : undefined,
+        userState: user?.state,
+      });
+      if (!decision.eligible && decision.reason === "setup-required") {
+        const params = flowParams(current.factors.user.loginName, organizationId, requestId);
+        params.set("invite", String(decision.invite));
+        if (await sendVerificationOnce({ userId: currentUserId, isInvite: decision.invite, requestId })) {
+          params.set("codeSent", "true");
+        }
+        return { error: t("otpFirstNotAllowed"), redirect: "/verify?" + params };
+      }
+      if (!decision.eligible && decision.reason === "user-state") {
+        logger.warn("OTP-first refused", { userId: currentUserId, organizationId, reason: decision.reason });
+        const unlockAt = await unlockEtaForUser(serviceConfig, currentUserId);
+        return { error: unlockAt ? t("userLockedUntil", { time: unlockAt }) : t("userLocked"), locked: true };
+      }
+      if (!decision.eligible) {
+        logger.warn("OTP-first refused", { userId: currentUserId, organizationId, reason: decision.reason });
+        return {
+          error: t("otpFirstNotAllowed"),
+          redirect: "/password?" + flowParams(current.factors.user.loginName, organizationId, requestId),
+        };
+      }
+    }
+
+    if (wantsOtpSend) {
+      const ip = clientIpFromHeaders(_headers);
+      const perLogin = limiters.otpSendPerLogin.hit(`login:${organizationId}:${current.factors.user.loginName}`);
+      const perIp = ip ? limiters.otpSendPerIp.hit(`ip:${ip}`) : { allowed: true, retryAfterMs: 0 };
+      if (!perLogin.allowed || !perIp.allowed) {
+        logger.warn("OTP send rate limited", {
+          userId: currentUserId,
+          organizationId,
+          scope: perLogin.allowed ? "ip" : "login",
+        });
+        return {
+          error: t("tooManyCodeRequests", { minutes: minutesUntil(Math.max(perLogin.retryAfterMs, perIp.retryAfterMs)) }),
+        };
+      }
     }
   }
 
@@ -324,6 +560,20 @@ export async function updateOrCreateSession(options: UpdateSessionCommand) {
       lifetime,
     });
   } catch (error) {
+    // AZDIGI: a wrong, unavailable or locked code is answered on the code screen, never by re-creating the session
+    if (triesOtpCode) {
+      const remaining = userId ? limiters.otpVerifyPerUser.peek(`user:${userId}`).remaining : 0;
+      const mapped = otpErrorToResult(
+        error,
+        t,
+        remaining,
+        userId ? await unlockEtaForUser(serviceConfig, userId) : undefined,
+      );
+      if (mapped) {
+        return mapped;
+      }
+    }
+
     // the code was already sent for this session: creating a new session with the same challenge would send
     // a second code, and the first one could not be verified against the new session
     if (error instanceof SessionUpdatedError && (challenges?.otpSms || challenges?.otpEmail)) {
@@ -367,8 +617,19 @@ export async function updateOrCreateSession(options: UpdateSessionCommand) {
     return { error: t("couldNotUpdateSession") };
   }
 
+  if (triesOtpCode && userId) {
+    // AZDIGI: a verified code ends the attempt window
+    limiters.otpVerifyPerUser.clear(`user:${userId}`);
+  }
+
   // @ts-ignore
   const challengeResponse: Challenges | undefined = session.challenges;
+
+  // AZDIGI: asking for a code proves nothing yet: return no user id, organisation or display name to the browser
+  // (the decoy answer could not return them either)
+  if (wantsOtpSend && !checks) {
+    return { retryAfterSeconds: challenges?.otpSms ? getOTPSMSResendCooldownSeconds() : undefined };
+  }
 
   return {
     sessionId: session.id,

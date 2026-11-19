@@ -1,4 +1,5 @@
-import * as loginnameModule from "@/lib/actions/loginname";
+import * as issueModule from "@/lib/azdigi/issue";
+import { PolicyRejectedError } from "@/lib/azdigi/issue";
 import { loginWithOIDCAndSession } from "@/lib/server/oidc";
 import * as sessionModule from "@/lib/server/session";
 import * as zitadelModule from "@/lib/server/zitadel";
@@ -6,7 +7,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/server/session");
 vi.mock("@/lib/server/zitadel");
-vi.mock("@/lib/actions/loginname");
+vi.mock("@/lib/azdigi/issue", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/azdigi/issue")>();
+  return { ...actual, guardedCreateCallback: vi.fn() };
+});
 vi.mock("@/lib/server/grpc/interceptors/error-classification", () => ({
   isClassifiedError: (error: unknown): boolean =>
     typeof error === "object" && error !== null && "code" in error && typeof (error as any).code === "number",
@@ -66,8 +70,8 @@ describe("loginWithOIDCAndSession", () => {
   });
 
   it("should redirect to callback URL when session is valid", async () => {
-    vi.mocked(sessionModule.isSessionValid).mockResolvedValue(true);
-    vi.mocked(zitadelModule.createCallback).mockResolvedValue({
+    vi.mocked(sessionModule.checkSessionPolicy).mockResolvedValue({ ok: true });
+    vi.mocked(issueModule.guardedCreateCallback).mockResolvedValue({
       callbackUrl: "https://app.example.com/callback",
     } as any);
 
@@ -82,10 +86,12 @@ describe("loginWithOIDCAndSession", () => {
     expect(result).toEqual({ redirect: "https://app.example.com/callback" });
   });
 
-  it("should redirect to re-authenticate when session is invalid", async () => {
-    vi.mocked(sessionModule.isSessionValid).mockResolvedValue(false);
-    vi.mocked(loginnameModule.sendLoginname).mockResolvedValue({
-      redirect: "/password",
+  // AZDIGI: an invalid session is answered with the screen the organisation's policy names; no callback is created
+  it("should redirect to the policy's next step when the session is invalid, without a callback", async () => {
+    vi.mocked(sessionModule.checkSessionPolicy).mockResolvedValue({
+      ok: false,
+      reason: "second-factor-missing",
+      next: "mfa",
     });
 
     const result = await loginWithOIDCAndSession({
@@ -96,20 +102,17 @@ describe("loginWithOIDCAndSession", () => {
       sessionCookies: mockCookies,
     });
 
-    expect(result).toEqual({ redirect: "/password" });
-    expect(loginnameModule.sendLoginname).toHaveBeenCalledWith({
-      loginName: "test@example.com",
-      organization: "org-123",
-      requestId: `oidc_${mockAuthRequest}`,
+    expect(result).toEqual({
+      redirect: `/mfa?loginName=test%40example.com&organization=org-123&requestId=oidc_${mockAuthRequest}`,
     });
+    expect(issueModule.guardedCreateCallback).not.toHaveBeenCalled();
   });
 
-  it.each([
-    ["undefined", undefined],
-    ["an error", { error: "errors.localAuthenticationNotAllowed" }],
-  ])("should not create a callback for an invalid session when re-authentication returns %s", async (_, response) => {
-    vi.mocked(sessionModule.isSessionValid).mockResolvedValue(false);
-    vi.mocked(loginnameModule.sendLoginname).mockResolvedValue(response as any);
+  it("should follow the wrapper's refusal (it re-reads the session with its token)", async () => {
+    vi.mocked(sessionModule.checkSessionPolicy).mockResolvedValue({ ok: true });
+    vi.mocked(issueModule.guardedCreateCallback).mockRejectedValue(
+      new PolicyRejectedError({ ok: false, reason: "no-first-factor", next: "otpEmail" }, mockSessions[0]),
+    );
 
     const result = await loginWithOIDCAndSession({
       serviceUrl: mockServiceUrl,
@@ -119,29 +122,13 @@ describe("loginWithOIDCAndSession", () => {
       sessionCookies: mockCookies,
     });
 
-    expect(result).toEqual({ error: "Session not found or invalid" });
-    expect(zitadelModule.createCallback).not.toHaveBeenCalled();
-  });
-
-  it("should pass SAML data of an upstream IDP through for an invalid session", async () => {
-    const samlData = { url: "https://idp.example.com/saml", fields: { SAMLRequest: "abc" } };
-    vi.mocked(sessionModule.isSessionValid).mockResolvedValue(false);
-    vi.mocked(loginnameModule.sendLoginname).mockResolvedValue({ samlData });
-
-    const result = await loginWithOIDCAndSession({
-      serviceUrl: mockServiceUrl,
-      authRequest: mockAuthRequest,
-      sessionId: mockSessionId,
-      sessions: mockSessions,
-      sessionCookies: mockCookies,
+    expect(result).toEqual({
+      redirect: `/otp/email?loginName=test%40example.com&organization=org-123&requestId=oidc_${mockAuthRequest}`,
     });
-
-    expect(result).toEqual({ samlData });
-    expect(zitadelModule.createCallback).not.toHaveBeenCalled();
   });
 
   it("should not create a callback for an invalid session without a user factor", async () => {
-    vi.mocked(sessionModule.isSessionValid).mockResolvedValue(false);
+    vi.mocked(sessionModule.checkSessionPolicy).mockResolvedValue({ ok: false, reason: "no-user", next: "loginname" });
 
     const result = await loginWithOIDCAndSession({
       serviceUrl: mockServiceUrl,
@@ -151,9 +138,8 @@ describe("loginWithOIDCAndSession", () => {
       sessionCookies: mockCookies,
     });
 
-    expect(result).toEqual({ error: "Session not found or invalid" });
-    expect(loginnameModule.sendLoginname).not.toHaveBeenCalled();
-    expect(zitadelModule.createCallback).not.toHaveBeenCalled();
+    expect(result).toEqual({ redirect: `/loginname?requestId=oidc_${mockAuthRequest}` });
+    expect(issueModule.guardedCreateCallback).not.toHaveBeenCalled();
   });
 
   it("should return error when session not found", async () => {
@@ -169,7 +155,7 @@ describe("loginWithOIDCAndSession", () => {
   });
 
   it("should return error when cookie not found", async () => {
-    vi.mocked(sessionModule.isSessionValid).mockResolvedValue(true);
+    vi.mocked(sessionModule.checkSessionPolicy).mockResolvedValue({ ok: true });
 
     const result = await loginWithOIDCAndSession({
       serviceUrl: mockServiceUrl,
@@ -184,8 +170,8 @@ describe("loginWithOIDCAndSession", () => {
 
   it("should handle error code 9 with default redirect", async () => {
     const { ConnectError } = await import("@zitadel/client");
-    vi.mocked(sessionModule.isSessionValid).mockResolvedValue(true);
-    vi.mocked(zitadelModule.createCallback).mockRejectedValue(new ConnectError("already handled", 9));
+    vi.mocked(sessionModule.checkSessionPolicy).mockResolvedValue({ ok: true });
+    vi.mocked(issueModule.guardedCreateCallback).mockRejectedValue(new ConnectError("already handled", 9));
     vi.mocked(zitadelModule.getLoginSettings).mockResolvedValue({
       defaultRedirectUri: "https://default.example.com",
     } as any);
@@ -203,8 +189,8 @@ describe("loginWithOIDCAndSession", () => {
 
   it("should redirect to /signedin when error code 9 and no default URI", async () => {
     const { ConnectError } = await import("@zitadel/client");
-    vi.mocked(sessionModule.isSessionValid).mockResolvedValue(true);
-    vi.mocked(zitadelModule.createCallback).mockRejectedValue(new ConnectError("already handled", 9));
+    vi.mocked(sessionModule.checkSessionPolicy).mockResolvedValue({ ok: true });
+    vi.mocked(issueModule.guardedCreateCallback).mockRejectedValue(new ConnectError("already handled", 9));
     vi.mocked(zitadelModule.getLoginSettings).mockResolvedValue({} as any);
 
     const result = await loginWithOIDCAndSession({
@@ -224,8 +210,8 @@ describe("loginWithOIDCAndSession", () => {
   });
 
   it("should return unknown error for non-code-9 errors", async () => {
-    vi.mocked(sessionModule.isSessionValid).mockResolvedValue(true);
-    vi.mocked(zitadelModule.createCallback).mockRejectedValue({
+    vi.mocked(sessionModule.checkSessionPolicy).mockResolvedValue({ ok: true });
+    vi.mocked(issueModule.guardedCreateCallback).mockRejectedValue({
       code: 13,
       message: "Internal error",
     });
@@ -243,8 +229,8 @@ describe("loginWithOIDCAndSession", () => {
 
   it("should reject javascript: defaultRedirectUri in FailedPrecondition path (XSS prevention)", async () => {
     const { ConnectError } = await import("@zitadel/client");
-    vi.mocked(sessionModule.isSessionValid).mockResolvedValue(true);
-    vi.mocked(zitadelModule.createCallback).mockRejectedValue(new ConnectError("already handled", 9));
+    vi.mocked(sessionModule.checkSessionPolicy).mockResolvedValue({ ok: true });
+    vi.mocked(issueModule.guardedCreateCallback).mockRejectedValue(new ConnectError("already handled", 9));
     vi.mocked(zitadelModule.getLoginSettings).mockResolvedValue({
       defaultRedirectUri: "javascript:alert(document.cookie)",
     } as any);
@@ -267,8 +253,8 @@ describe("loginWithOIDCAndSession", () => {
 
   it("should reject data: defaultRedirectUri in FailedPrecondition path (XSS prevention)", async () => {
     const { ConnectError } = await import("@zitadel/client");
-    vi.mocked(sessionModule.isSessionValid).mockResolvedValue(true);
-    vi.mocked(zitadelModule.createCallback).mockRejectedValue(new ConnectError("already handled", 9));
+    vi.mocked(sessionModule.checkSessionPolicy).mockResolvedValue({ ok: true });
+    vi.mocked(issueModule.guardedCreateCallback).mockRejectedValue(new ConnectError("already handled", 9));
     vi.mocked(zitadelModule.getLoginSettings).mockResolvedValue({
       defaultRedirectUri: "data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==",
     } as any);

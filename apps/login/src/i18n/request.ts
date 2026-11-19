@@ -1,7 +1,7 @@
-import { LANGS, LANGUAGE_COOKIE_NAME, LANGUAGE_HEADER_NAME } from "@/lib/i18n";
+import { DEFAULT_LOCALE, LANGUAGE_COOKIE_NAME, LANGUAGE_HEADER_NAME, pickLocale } from "@/lib/i18n";
 import { mergeMessages } from "@/lib/server/merge-messages";
 import { getServiceConfig } from "@/lib/server/service-url";
-import { getAllowedLanguages, getHostedLoginTranslation } from "@/lib/server/zitadel";
+import { getHostedLoginTranslation } from "@/lib/server/zitadel";
 import { JsonObject } from "@zitadel/client";
 import { getRequestConfig } from "next-intl/server";
 import { cookies, headers } from "next/headers";
@@ -13,42 +13,10 @@ export default getRequestConfig(async () => {
   const _headers = await headers();
   const { serviceConfig } = getServiceConfig(_headers);
 
-  let allowedLanguages = LANGS.map((l) => l.code);
-  let defaultLanguage = fallback;
-
-  try {
-    const settings = await getAllowedLanguages({ serviceConfig });
-    if (settings.allowedLanguages?.length) {
-      const localLanguageCodes = LANGS.map((l) => l.code);
-      allowedLanguages = settings.allowedLanguages.filter((l) => localLanguageCodes.includes(l));
-    }
-    if (settings.defaultLanguage) {
-      defaultLanguage = settings.defaultLanguage;
-    }
-  } catch (e) {
-    console.warn("Failed to load global settings", e);
-  }
-
-  let locale: string = defaultLanguage;
-
-  const languageHeader = await (await headers()).get(LANGUAGE_HEADER_NAME);
-  if (languageHeader) {
-    // splits "en-US,en;q=0.9" to ["en", "US"] or ["en"]
-    const headerLocale = languageHeader.split(",")[0].split("-")[0];
-    if (allowedLanguages.includes(headerLocale)) {
-      locale = headerLocale;
-    }
-  }
-
-  const languageCookie = cookiesList?.get(LANGUAGE_COOKIE_NAME);
-  if (languageCookie && languageCookie.value) {
-    if (allowedLanguages.includes(languageCookie.value)) {
-      locale = languageCookie.value;
-    } else {
-      // If the cookie tells a language that is other than the supported ones, fall back to the default.
-      locale = defaultLanguage;
-    }
-  }
+  // AZDIGI: vi by default, cookie override, vi whenever the browser lists it (lib/i18n.ts pickLocale). The instance's
+  // allowed-language list is not applied: Zitadel does not ship vi, so it would drop the default language.
+  const defaultLanguage = DEFAULT_LOCALE;
+  const locale = pickLocale(_headers.get(LANGUAGE_HEADER_NAME), cookiesList?.get(LANGUAGE_COOKIE_NAME)?.value);
 
   const i18nOrganization = _headers.get("x-zitadel-i18n-organization") || ""; // You may need to set this header in middleware
 
@@ -85,6 +53,8 @@ export default getRequestConfig(async () => {
 
   return {
     locale,
+    // AZDIGI: times on the screens (lockout ETA) in Vietnam's zone, not the container's
+    timeZone: process.env.AZDIGI_TIME_ZONE || "Asia/Ho_Chi_Minh",
     messages: mergeMessages(fallbackMessages, localeMessages, customMessages) as Record<string, string>,
   };
 });

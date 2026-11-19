@@ -1,0 +1,373 @@
+/**
+ * AZDIGI rules of the public updateOrCreateSession action: a user-only session may only request or try an email code
+ * when OTP-first applies, an unknown name in a customer context gets decoy answers, code sends and attempts are rate
+ * limited, Zitadel's code errors become the screens' messages, and no OTP code ever reaches the browser. Upstream's own
+ * behaviour (host-bound challenges, lifetimes, SMS cooldown) is covered by session.test.ts.
+ */
+import * as otpFirst from "@/lib/azdigi/otp-first";
+import { resetLimiters } from "@/lib/azdigi/rate-limit";
+import { sendVerificationOnce } from "@/lib/azdigi/verification-mail";
+import * as cookies from "@/lib/server/cookies";
+import * as sessionLib from "@/lib/server/session";
+import * as sessionCookie from "@/lib/server/session-cookie";
+import * as zitadel from "@/lib/server/zitadel";
+import { create } from "@zitadel/client";
+import { RequestChallengesSchema } from "@zitadel/proto/zitadel/session/v2/challenge_pb";
+import { ChecksSchema } from "@zitadel/proto/zitadel/session/v2/session_service_pb";
+import { beforeEach, describe, expect, test, vi } from "vitest";
+import { updateOrCreateSession } from "./session";
+
+const headerValues: Record<string, string> = {};
+vi.mock("@/lib/azdigi/verification-mail", () => ({ sendVerificationOnce: vi.fn(async () => true) }));
+vi.mock("next/headers", () => ({
+  headers: vi.fn(async () => ({ get: (n: string) => headerValues[n.toLowerCase()] ?? null })),
+}));
+vi.mock("next-intl/server", () => ({
+  getTranslations: vi.fn(
+    async () => (key: string, args?: Record<string, unknown>) => (args ? `${key}:${JSON.stringify(args)}` : key),
+  ),
+}));
+vi.mock("@/lib/server/service-url", () => ({
+  getServiceConfig: vi.fn(() => ({ serviceConfig: { baseUrl: "http://api" } })),
+}));
+vi.mock("@/lib/server/host", () => ({
+  getPublicHost: vi.fn(() => "login.azdigi.com"),
+  getPublicHostWithProtocol: vi.fn(() => "https://login.azdigi.com"),
+}));
+vi.mock("@/lib/actions/flow", () => ({ completeFlowOrGetUrl: vi.fn() }));
+vi.mock("@/lib/server/reauthenticate", () => ({ reauthenticate: vi.fn() }));
+vi.mock("@/lib/server/cookies", () => ({
+  getMostRecentSessionCookie: vi.fn(),
+  getSessionCookieById: vi.fn(),
+  getSessionCookieByLoginName: vi.fn(),
+  removeSessionFromCookie: vi.fn(),
+}));
+vi.mock("@/lib/server/session", () => ({
+  loadSession: vi.fn(),
+  isSessionValid: vi.fn(),
+  hasVerifiedPrimaryFactor: vi.fn(),
+}));
+vi.mock("@/lib/server/session-cookie", () => ({
+  createSessionAndUpdateCookie: vi.fn(),
+  setSessionAndUpdateCookie: vi.fn(),
+}));
+vi.mock("@/lib/server/zitadel", () => ({
+  deleteSession: vi.fn(),
+  getLoginSettings: vi.fn(),
+  getSecuritySettings: vi.fn(),
+  getUserByID: vi.fn(),
+  humanMFAInitSkipped: vi.fn(),
+  listUsers: vi.fn(),
+}));
+vi.mock("@/lib/azdigi/otp-first", () => ({ decideOtpFirstForUser: vi.fn() }));
+vi.mock("@/lib/azdigi/decoy", () => ({
+  withMinimumDuration: (run: () => Promise<unknown>) => run(),
+  decoyLoginName: (name: string) => name.trim().toLowerCase(),
+  decoyOrganization: vi.fn(async () => "o1"),
+}));
+vi.mock("@/lib/azdigi/org-lookup", () => ({ isOtpFirstOrg: vi.fn(async (_cfg: unknown, org?: string) => org === "o1") }));
+
+const at = { seconds: BigInt(Math.floor(Date.now() / 1000) - 10), nanos: 0 };
+const recentCookie = {
+  id: "s1",
+  token: "tok",
+  loginName: "a@b.c",
+  organization: "o1",
+  creationTs: "",
+  expirationTs: "",
+  changeTs: "",
+} as any;
+
+function liveSession(factors: Record<string, unknown> = {}) {
+  return {
+    id: "s1",
+    factors: { user: { id: "u1", organizationId: "o1", loginName: "a@b.c", verifiedAt: at }, ...factors },
+  } as any;
+}
+
+describe("updateOrCreateSession", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetLimiters();
+    for (const k of Object.keys(headerValues)) delete headerValues[k];
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.mocked(cookies.getSessionCookieByLoginName).mockResolvedValue(recentCookie);
+    vi.mocked(zitadel.getLoginSettings).mockResolvedValue({
+      secondFactorCheckLifetime: { seconds: BigInt(3600), nanos: 0 },
+    } as any);
+    vi.mocked(zitadel.getUserByID).mockResolvedValue({
+      user: { state: 1, type: { case: "human", value: { email: { isVerified: true } } } },
+    } as any);
+  });
+
+  test("eligible user-only session: challenge is sent server-built and the OTP code is not in the response", async () => {
+    vi.mocked(sessionLib.loadSession).mockResolvedValue(liveSession());
+    vi.mocked(otpFirst.decideOtpFirstForUser).mockResolvedValue({ eligible: true, altPassword: false, altPasskey: false });
+    vi.mocked(sessionCookie.setSessionAndUpdateCookie).mockResolvedValue({
+      ...liveSession(),
+      challenges: { otpEmail: "123456", otpSms: "654321", webAuthN: undefined },
+    } as any);
+
+    const res = await updateOrCreateSession({
+      loginName: "a@b.c",
+      organization: "o1",
+      requestId: "oidc_1",
+      challenges: create(RequestChallengesSchema, { otpEmail: { deliveryType: { case: "returnCode", value: {} } } }),
+    });
+
+    expect("error" in res).toBe(false);
+    const call = vi.mocked(sessionCookie.setSessionAndUpdateCookie).mock.calls[0][0];
+    expect(call.challenges?.otpEmail?.deliveryType.case).toBe("sendCode");
+    expect((res as any).challenges).toBeUndefined();
+    expect(JSON.stringify(res, (_k, v) => (typeof v === "bigint" ? v.toString() : v))).not.toContain("123456");
+  });
+
+  test("user-only session of a non-eligible user is refused and sent to the password page", async () => {
+    vi.mocked(sessionLib.loadSession).mockResolvedValue(liveSession());
+    vi.mocked(otpFirst.decideOtpFirstForUser).mockResolvedValue({ eligible: false, reason: "forceMfa" });
+
+    const res = await updateOrCreateSession({
+      loginName: "a@b.c",
+      organization: "o1",
+      requestId: "oidc_1",
+      challenges: create(RequestChallengesSchema, { otpEmail: {} }),
+    });
+
+    expect(res).toEqual({
+      error: "otpFirstNotAllowed",
+      redirect: "/password?loginName=a%40b.c&organization=o1&requestId=oidc_1",
+    });
+    expect(sessionCookie.setSessionAndUpdateCookie).not.toHaveBeenCalled();
+  });
+
+  test.each([true, false])(
+    "a customer needing setup is sent to verification before any OTP challenge (invite=%s)",
+    async (invite) => {
+      vi.mocked(sessionLib.loadSession).mockResolvedValue(liveSession());
+      vi.mocked(otpFirst.decideOtpFirstForUser).mockResolvedValue({
+        eligible: false,
+        reason: "setup-required",
+        invite,
+      } as any);
+      const res = await updateOrCreateSession({
+        loginName: "a@b.c",
+        organization: "o1",
+        requestId: "oidc_1",
+        challenges: create(RequestChallengesSchema, { otpEmail: {} }),
+      });
+      expect(res).toEqual({
+        error: "otpFirstNotAllowed",
+        redirect: `/verify?loginName=a%40b.c&organization=o1&requestId=oidc_1&invite=${invite}&codeSent=true`,
+      });
+      // the code is sent on the server, to the user of the session (upstream's /verify no longer sends on render)
+      expect(sendVerificationOnce).toHaveBeenCalledWith({ userId: "u1", isInvite: invite, requestId: "oidc_1" });
+      expect(sessionCookie.setSessionAndUpdateCookie).not.toHaveBeenCalled();
+    },
+  );
+
+  test("a session with a verified password may request an email code as a second factor without eligibility", async () => {
+    vi.mocked(sessionLib.loadSession).mockResolvedValue(liveSession({ password: { verifiedAt: at } }));
+    vi.mocked(sessionCookie.setSessionAndUpdateCookie).mockResolvedValue({
+      ...liveSession({ password: { verifiedAt: at } }),
+      challenges: undefined,
+    } as any);
+    const res = await updateOrCreateSession({
+      loginName: "a@b.c",
+      challenges: create(RequestChallengesSchema, { otpEmail: {} }),
+    });
+    expect("error" in res).toBe(false);
+    expect(otpFirst.decideOtpFirstForUser).not.toHaveBeenCalled();
+  });
+
+  test("code sends are limited to 3 per login name in 10 minutes", async () => {
+    vi.mocked(sessionLib.loadSession).mockResolvedValue(liveSession({ password: { verifiedAt: at } }));
+    vi.mocked(sessionCookie.setSessionAndUpdateCookie).mockResolvedValue({ ...liveSession(), challenges: undefined } as any);
+    const send = () =>
+      updateOrCreateSession({ loginName: "a@b.c", challenges: create(RequestChallengesSchema, { otpEmail: {} }) });
+    for (let i = 0; i < 3; i++) expect("error" in (await send())).toBe(false);
+    const fourth = await send();
+    expect(fourth).toEqual({ error: 'tooManyCodeRequests:{"minutes":10}' });
+    expect(sessionCookie.setSessionAndUpdateCookie).toHaveBeenCalledTimes(3);
+  });
+
+  test("code sends are limited to 20 per client IP", async () => {
+    headerValues["cf-connecting-ip"] = "203.0.113.9";
+    vi.mocked(sessionLib.loadSession).mockResolvedValue(liveSession({ password: { verifiedAt: at } }));
+    vi.mocked(sessionCookie.setSessionAndUpdateCookie).mockResolvedValue({ ...liveSession(), challenges: undefined } as any);
+    for (let i = 0; i < 20; i++) {
+      vi.mocked(cookies.getSessionCookieByLoginName).mockResolvedValue({ ...recentCookie, loginName: `u${i}@b.c` });
+      vi.mocked(sessionLib.loadSession).mockResolvedValue(
+        liveSession({
+          password: { verifiedAt: at },
+          user: { id: "u", organizationId: "o1", loginName: `u${i}@b.c`, verifiedAt: at },
+        }),
+      );
+      expect(
+        "error" in
+          (await updateOrCreateSession({
+            loginName: `u${i}@b.c`,
+            challenges: create(RequestChallengesSchema, { otpEmail: {} }),
+          })),
+      ).toBe(false);
+    }
+    const res = await updateOrCreateSession({
+      loginName: "z@b.c",
+      challenges: create(RequestChallengesSchema, { otpEmail: {} }),
+    });
+    expect((res as any).error).toMatch(/^tooManyCodeRequests/);
+  });
+
+  test("code attempts: wrong codes are mapped with the attempts left, the 3rd attempt in 10 minutes is not sent to Zitadel (it would lock the user)", async () => {
+    vi.mocked(sessionLib.loadSession).mockResolvedValue(liveSession());
+    vi.mocked(otpFirst.decideOtpFirstForUser).mockResolvedValue({ eligible: true, altPassword: false, altPasskey: false });
+    vi.mocked(sessionCookie.setSessionAndUpdateCookie).mockRejectedValue({ rawMessage: "Code is invalid (CODE-woT0xc)" });
+    const attempt = () =>
+      updateOrCreateSession({ loginName: "a@b.c", checks: create(ChecksSchema, { otpEmail: { code: "000000" } }) });
+    expect(await attempt()).toEqual({ error: 'codeInvalid:{"remaining":1}', failedAttempts: undefined });
+    expect(await attempt()).toEqual({ error: 'codeInvalid:{"remaining":0}', failedAttempts: undefined });
+    expect(await attempt()).toEqual({ error: 'tooManyCodeAttempts:{"minutes":10}' });
+    expect(sessionCookie.setSessionAndUpdateCookie).toHaveBeenCalledTimes(2);
+  });
+
+  test("a locked user is reported as locked", async () => {
+    vi.mocked(sessionLib.loadSession).mockResolvedValue(liveSession({ password: { verifiedAt: at } }));
+    vi.mocked(sessionCookie.setSessionAndUpdateCookie).mockRejectedValue({ rawMessage: "User is locked (COMMAND-S6h4R)" });
+    const res = await updateOrCreateSession({
+      loginName: "a@b.c",
+      checks: create(ChecksSchema, { otpEmail: { code: "000000" } }),
+    });
+    expect(res).toEqual({ error: "userLocked", locked: true });
+  });
+
+  test("a successful code clears the attempt window", async () => {
+    vi.mocked(sessionLib.loadSession).mockResolvedValue(liveSession());
+    vi.mocked(otpFirst.decideOtpFirstForUser).mockResolvedValue({ eligible: true, altPassword: false, altPasskey: false });
+    vi.mocked(sessionCookie.setSessionAndUpdateCookie)
+      .mockRejectedValueOnce({ rawMessage: "Code is invalid (CODE-woT0xc)" })
+      .mockResolvedValueOnce({ ...liveSession({ otpEmail: { verifiedAt: at } }), challenges: undefined } as any)
+      .mockRejectedValue({ rawMessage: "Code is invalid (CODE-woT0xc)" });
+    const attempt = () =>
+      updateOrCreateSession({ loginName: "a@b.c", checks: create(ChecksSchema, { otpEmail: { code: "000000" } }) });
+    await attempt();
+    expect("sessionId" in (await attempt())).toBe(true);
+    expect(await attempt()).toEqual({ error: 'codeInvalid:{"remaining":1}', failedAttempts: undefined });
+  });
+
+  test("without a cookie, a name that is not an account of the OTP-first organisation gets the decoy answers", async () => {
+    vi.mocked(cookies.getSessionCookieByLoginName).mockResolvedValue(undefined as any);
+    for (const found of [
+      { details: { totalResult: BigInt(0) }, result: [] },
+      { details: { totalResult: BigInt(1) }, result: [{ userId: "s", details: { resourceOwner: "staff" } }] },
+    ]) {
+      vi.mocked(zitadel.listUsers).mockResolvedValue(found as any);
+      // whatever organisation the browser claims, the decision comes from the account found
+      expect(
+        await updateOrCreateSession({
+          loginName: "Ghost@x.test",
+          organization: "o1",
+          challenges: create(RequestChallengesSchema, { otpEmail: {} }),
+        }),
+      ).toEqual({});
+      const wrong = await updateOrCreateSession({
+        loginName: "ghost@x.test",
+        organization: "staff",
+        checks: create(ChecksSchema, { otpEmail: { code: "000000" } }),
+      });
+      expect(wrong.error).toMatch(/^codeInvalid|^tooManyCodeAttempts/);
+    }
+    expect(sessionCookie.createSessionAndUpdateCookie).not.toHaveBeenCalled();
+    expect(sessionCookie.setSessionAndUpdateCookie).not.toHaveBeenCalled();
+  });
+
+  test("without a cookie the session is created with a user check only, challenges come afterwards", async () => {
+    vi.mocked(zitadel.listUsers).mockResolvedValue({
+      details: { totalResult: BigInt(1) },
+      result: [{ userId: "u1", details: { resourceOwner: "o1" } }],
+    } as any);
+    vi.mocked(cookies.getSessionCookieByLoginName).mockResolvedValue(undefined as any);
+    vi.mocked(sessionCookie.createSessionAndUpdateCookie).mockResolvedValue({
+      session: liveSession(),
+      sessionCookie: recentCookie,
+    } as any);
+    vi.mocked(sessionLib.loadSession).mockResolvedValue(liveSession());
+    vi.mocked(otpFirst.decideOtpFirstForUser).mockResolvedValue({ eligible: true, altPassword: true, altPasskey: false });
+    vi.mocked(sessionCookie.setSessionAndUpdateCookie).mockResolvedValue({ ...liveSession(), challenges: undefined } as any);
+    await updateOrCreateSession({ loginName: "a@b.c", challenges: create(RequestChallengesSchema, { otpEmail: {} }) });
+    const created = vi.mocked(sessionCookie.createSessionAndUpdateCookie).mock.calls[0][0];
+    expect(created.challenges).toBeUndefined();
+    expect(created.checks.user?.search.case).toBe("loginName");
+    expect(vi.mocked(sessionCookie.setSessionAndUpdateCookie).mock.calls[0][0].challenges?.otpEmail).toBeDefined();
+  });
+
+  test("an OTP request scoped to another organization never creates a session for the globally found customer", async () => {
+    vi.mocked(cookies.getSessionCookieByLoginName).mockResolvedValue(undefined as any);
+    vi.mocked(zitadel.listUsers).mockResolvedValue({
+      details: { totalResult: BigInt(1) },
+      result: [{ userId: "u1", details: { resourceOwner: "o1" } }],
+    } as any);
+    await updateOrCreateSession({
+      loginName: "a@b.c",
+      organization: "other-customer-org",
+      challenges: create(RequestChallengesSchema, { otpEmail: {} }),
+    });
+    expect(zitadel.listUsers).toHaveBeenCalledWith(expect.objectContaining({ organizationId: "other-customer-org" }));
+    expect(sessionCookie.createSessionAndUpdateCookie).not.toHaveBeenCalled();
+    expect(sessionCookie.setSessionAndUpdateCookie).not.toHaveBeenCalled();
+  });
+
+  test("checking an email code without a cookie never creates a fresh unchallenged session", async () => {
+    vi.mocked(cookies.getSessionCookieByLoginName).mockResolvedValue(undefined as any);
+    vi.mocked(zitadel.listUsers).mockResolvedValue({
+      details: { totalResult: BigInt(1) },
+      result: [{ userId: "u1", details: { resourceOwner: "o1" } }],
+    } as any);
+    const res = await updateOrCreateSession({
+      loginName: "a@b.c",
+      organization: "o1",
+      checks: create(ChecksSchema, { otpEmail: { code: "000000" } }),
+    });
+    expect(res.error).toMatch(/^codeInvalid/);
+    expect(sessionCookie.createSessionAndUpdateCookie).not.toHaveBeenCalled();
+  });
+
+  test("an existing session from another organization cannot send a challenge", async () => {
+    vi.mocked(sessionLib.loadSession).mockResolvedValue(liveSession());
+    expect(
+      await updateOrCreateSession({
+        loginName: "a@b.c",
+        organization: "other-customer-org",
+        challenges: create(RequestChallengesSchema, { otpEmail: {} }),
+      }),
+    ).toEqual({ error: "couldNotFindSession" });
+    expect(sessionCookie.setSessionAndUpdateCookie).not.toHaveBeenCalled();
+  });
+
+  test("a missing OTP challenge returns a localized recovery error without recreating the session", async () => {
+    vi.mocked(sessionLib.loadSession).mockResolvedValue(liveSession());
+    vi.mocked(otpFirst.decideOtpFirstForUser).mockResolvedValue({ eligible: true, altPassword: false, altPasskey: false });
+    vi.mocked(sessionCookie.setSessionAndUpdateCookie).mockRejectedValue({
+      rawMessage: "Code not found (COMMAND-S34gh)",
+      code: 9,
+    });
+    const res = await updateOrCreateSession({
+      loginName: "a@b.c",
+      organization: "o1",
+      checks: create(ChecksSchema, { otpEmail: { code: "000000" } }),
+    });
+    expect(res).toEqual({ error: "codeUnavailable" });
+    expect(sessionCookie.createSessionAndUpdateCookie).not.toHaveBeenCalled();
+  });
+
+  test("the WebAuthn challenge is still returned to the browser", async () => {
+    vi.mocked(sessionCookie.setSessionAndUpdateCookie).mockResolvedValue({
+      ...liveSession(),
+      challenges: { webAuthN: { publicKeyCredentialRequestOptions: { publicKey: {} } } },
+    } as any);
+    const res = await updateOrCreateSession({
+      loginName: "a@b.c",
+      challenges: create(RequestChallengesSchema, { webAuthN: { domain: "", userVerificationRequirement: 1 } }),
+    });
+    expect((res as any).challenges.webAuthN).toBeDefined();
+    expect(sessionLib.loadSession).not.toHaveBeenCalled();
+  });
+});

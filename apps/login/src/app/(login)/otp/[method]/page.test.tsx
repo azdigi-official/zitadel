@@ -2,9 +2,21 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import Page from "./page";
 
+// AZDIGI: no customer context, no OTP-first decision and no phone channel in upstream's cases (page-azdigi.test.tsx)
+vi.mock("@/lib/azdigi/decoy", () => ({ decoyOrganization: async () => undefined, decoyLoginName: (s: string) => s }));
+vi.mock("@/lib/azdigi/otp-first", () => ({ decideOtpFirstForUser: vi.fn(async () => ({ eligible: true })) }));
+vi.mock("@/lib/azdigi/otp-channel", () => ({
+  phoneChannels: () => [],
+  availableChannels: () => [],
+  maskPhone: () => "",
+  OTP_CHANNEL_METADATA_KEY: "channel",
+}));
+
 vi.mock("@/lib/server/zitadel", () => ({
   getBrandingSettings: vi.fn(),
   getLoginSettings: vi.fn(),
+  getUserByID: vi.fn(async () => ({ user: undefined })),
+  getUserMetadata: vi.fn(),
 }));
 
 vi.mock("@/lib/server/session", () => ({

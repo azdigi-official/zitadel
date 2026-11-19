@@ -1,12 +1,14 @@
-import * as loginnameModule from "@/lib/actions/loginname";
+import * as issueModule from "@/lib/azdigi/issue";
 import { loginWithSAMLAndSession } from "@/lib/server/saml";
 import * as sessionModule from "@/lib/server/session";
-import * as zitadelModule from "@/lib/server/zitadel";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/server/session");
 vi.mock("@/lib/server/zitadel");
-vi.mock("@/lib/actions/loginname");
+vi.mock("@/lib/azdigi/issue", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/azdigi/issue")>();
+  return { ...actual, guardedCreateResponse: vi.fn() };
+});
 vi.mock("@/lib/server/grpc/interceptors/error-classification", () => ({
   isClassifiedError: (error: unknown): boolean =>
     typeof error === "object" && error !== null && "code" in error && typeof (error as any).code === "number",
@@ -65,8 +67,8 @@ describe("loginWithSAMLAndSession", () => {
     });
 
   it("should redirect to the SAML response URL when session is valid", async () => {
-    vi.mocked(sessionModule.isSessionValid).mockResolvedValue(true);
-    vi.mocked(zitadelModule.createResponse).mockResolvedValue({
+    vi.mocked(sessionModule.checkSessionPolicy).mockResolvedValue({ ok: true });
+    vi.mocked(issueModule.guardedCreateResponse).mockResolvedValue({
       url: "https://sp.example.com/acs",
       binding: { case: "redirect", value: {} },
     } as any);
@@ -76,41 +78,28 @@ describe("loginWithSAMLAndSession", () => {
     expect(result).toEqual({ redirect: "https://sp.example.com/acs" });
   });
 
-  it("should redirect to re-authenticate when session is invalid", async () => {
-    vi.mocked(sessionModule.isSessionValid).mockResolvedValue(false);
-    vi.mocked(loginnameModule.sendLoginname).mockResolvedValue({ redirect: "/password" });
-
-    const result = await login();
-
-    expect(result).toEqual({ redirect: "/password" });
-    expect(loginnameModule.sendLoginname).toHaveBeenCalledWith({
-      loginName: "test@example.com",
-      organization: "org-123",
-      requestId: `saml_${mockSamlRequest}`,
+  // AZDIGI: an invalid session is answered with the screen the organisation's policy names; no SAML response is created
+  it("should redirect to the policy's next step when the session is invalid, without a response", async () => {
+    vi.mocked(sessionModule.checkSessionPolicy).mockResolvedValue({
+      ok: false,
+      reason: "no-first-factor",
+      next: "password",
     });
-    expect(zitadelModule.createResponse).not.toHaveBeenCalled();
-  });
-
-  it.each([
-    ["undefined", undefined],
-    ["an error", { error: "errors.localAuthenticationNotAllowed" }],
-  ])("should not create a SAML response for an invalid session when re-authentication returns %s", async (_, response) => {
-    vi.mocked(sessionModule.isSessionValid).mockResolvedValue(false);
-    vi.mocked(loginnameModule.sendLoginname).mockResolvedValue(response as any);
 
     const result = await login();
 
-    expect(result).toEqual({ error: "Session not found or invalid" });
-    expect(zitadelModule.createResponse).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      redirect: `/password?loginName=test%40example.com&organization=org-123&requestId=saml_${mockSamlRequest}`,
+    });
+    expect(issueModule.guardedCreateResponse).not.toHaveBeenCalled();
   });
 
   it("should not create a SAML response for an invalid session without a user factor", async () => {
-    vi.mocked(sessionModule.isSessionValid).mockResolvedValue(false);
+    vi.mocked(sessionModule.checkSessionPolicy).mockResolvedValue({ ok: false, reason: "no-user", next: "loginname" });
 
     const result = await login([{ id: mockSessionId, factors: {} }]);
 
-    expect(result).toEqual({ error: "Session not found or invalid" });
-    expect(loginnameModule.sendLoginname).not.toHaveBeenCalled();
-    expect(zitadelModule.createResponse).not.toHaveBeenCalled();
+    expect(result).toEqual({ redirect: `/loginname?requestId=saml_${mockSamlRequest}` });
+    expect(issueModule.guardedCreateResponse).not.toHaveBeenCalled();
   });
 });

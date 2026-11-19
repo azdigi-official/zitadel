@@ -1,5 +1,6 @@
 "use client";
 
+import { finishSignInWithSetupCode } from "@/components/azdigi/totp-setup-finish";
 import { completeFlowOrGetUrl } from "@/lib/actions/flow";
 import { verifyTOTP } from "@/lib/actions/verify";
 import { handleServerActionResponse } from "@/lib/client-utils";
@@ -50,7 +51,12 @@ export function TotpRegister({ uri, loginName, sessionId, requestId, organizatio
   async function continueWithCode(values: Inputs) {
     setLoading(true);
     return verifyTOTP(values.code, loginName, organization)
-      .then(async () => {
+      .then(async (result) => {
+        // AZDIGI: a refused set-up (lib/azdigi/enrolment-guard.ts) is shown, not treated as done
+        if (result && typeof result === "object" && "error" in result && result.error) {
+          setError(String(result.error));
+          return;
+        }
         // if attribute is set, validate MFA after it is setup, otherwise proceed as usual (when mfa is enforced to login)
         if (checkAfter) {
           const params = new URLSearchParams({});
@@ -65,6 +71,23 @@ export function TotpRegister({ uri, loginName, sessionId, requestId, organizatio
             params.append("organization", organization);
           }
 
+          // AZDIGI: the code just entered also completes the sign-in; the code screen is only the fallback, and says why
+          if (
+            await finishSignInWithSetupCode({
+              code: values.code,
+              loginName,
+              sessionId,
+              organization,
+              requestId,
+              loginSettings,
+              router,
+              setSamlData,
+              setError,
+            })
+          ) {
+            return;
+          }
+          params.append("afterSetup", "true");
           return router.push(`/otp/time-based?` + params);
         } else {
           if (requestId && sessionId) {

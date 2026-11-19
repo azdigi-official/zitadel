@@ -5,6 +5,13 @@ import { AuthenticationMethodType } from "@zitadel/proto/zitadel/user/v2/user_se
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
 // Mock dependencies
+// AZDIGI: decoy timing and the OTP-first allow-list are tested in lib/azdigi; keep them out of the stock cases
+vi.mock("@/lib/azdigi/decoy", () => ({
+  hidingUnknownAccounts: async (_cfg: unknown, settings: unknown) => settings,
+  withMinimumDuration: (run: () => Promise<unknown>) => run(),
+}));
+vi.mock("@/lib/azdigi/org-lookup", () => ({ isOtpFirstOrg: vi.fn(async () => false) }));
+
 vi.mock("next/headers", () => ({
   headers: vi.fn(),
 }));

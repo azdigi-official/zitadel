@@ -1,5 +1,6 @@
 "use client";
 
+import { AuthFrame } from "@/components/azdigi/auth-frame";
 import { Logo } from "@/components/logo";
 import { useResponsiveLayout } from "@/lib/theme-hooks";
 import { BrandingSettings } from "@zitadel/proto/zitadel/settings/v2/branding_settings_pb";
@@ -35,6 +36,17 @@ export function DynamicTheme({
     }
     return children;
   }, [children, isSideBySide]);
+
+  // AZDIGI: every page uses the Portal two-panel frame (components/azdigi/auth-frame.tsx); the stock layouts below
+  // stay untouched to keep upstream merges small, but are not reached
+  const azdigiFrame = true;
+  if (azdigiFrame) {
+    return (
+      <ThemeWrapper branding={branding}>
+        <AuthFrame branding={branding}>{actualChildren}</AuthFrame>
+      </ThemeWrapper>
+    );
+  }
 
   return (
     <ThemeWrapper branding={branding}>

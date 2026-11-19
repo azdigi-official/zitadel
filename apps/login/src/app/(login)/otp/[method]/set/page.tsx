@@ -5,12 +5,13 @@ import { OTPAddForm } from "@/components/otp-add-form";
 import { TotpRegister } from "@/components/totp-register";
 import { Translated } from "@/components/translated";
 import { UserAvatar } from "@/components/user-avatar";
-import { getEnrollmentAuthorizationError } from "@/lib/server/enrollment-guard";
+import { enrolmentAuthorizationError } from "@/lib/azdigi/enrolment-guard";
 import { getServiceConfig } from "@/lib/server/service-url";
 import { loadMostRecentSession, loadSessionById } from "@/lib/server/session";
 import { getBrandingSettings, getLoginSettings, registerTOTP } from "@/lib/server/zitadel";
 import { RegisterTOTPResponse } from "@zitadel/proto/zitadel/user/v2/user_service_pb";
 import { headers } from "next/headers";
+import { redirect } from "next/navigation";
 
 export default async function Page(props: {
   searchParams: Promise<Record<string | number | symbol, string | undefined>>;
@@ -39,17 +40,30 @@ export default async function Page(props: {
         },
       });
 
+  // AZDIGI: a session the enrolment gate refuses starts again at the sign-in, keeping the flow's context (as the fork
+  // always did); no secret is created. Without a session upstream's alerts below apply.
+  const backToSignIn = () => {
+    const params = new URLSearchParams();
+    if (loginName) params.append("loginName", loginName);
+    if (organization) params.append("organization", organization);
+    if (requestId) params.append("requestId", requestId);
+    redirect("/loginname?" + params);
+  };
+
   let totpResponse: RegisterTOTPResponse | undefined, error: Error | undefined;
   if (session && session.factors?.user?.id) {
     // Enrollment must be authorized: a bare identify-only session must not be able to
     // attach a new OTP/TOTP factor to the account (GHSA-45f2-5q3r-xgg6).
-    const enrollmentError = await getEnrollmentAuthorizationError({
+    // AZDIGI: an authenticator app can satisfy the second factor on its own; email and SMS codes go to the
+    // account's own verified address (lib/azdigi/enrolment-guard.ts)
+    const enrollmentError = await enrolmentAuthorizationError({
       serviceConfig,
       session,
       userId: session.factors.user.id,
+      kind: method === "time-based" ? "strong" : "code",
     });
     if (enrollmentError) {
-      error = new Error(enrollmentError);
+      backToSignIn();
     } else if (method === "time-based") {
       // registering only creates a pending secret, which is not used for authentication until
       // the user verified a code from it, so it's safe to do while rendering

@@ -50,7 +50,8 @@
       "localAuthenticationNotAllowed": "Lokale authenticatie is niet toegestaan! Neem contact op met uw beheerder voor meer informatie.",
       "passkeysNotAllowed": "Passkeys niet toegestaan! Neem contact op met jouw beheerder voor meer informatie.",
       "couldNotFindIdentityProvider": "Kon identiteitsprovider niet vinden.",
-      "userNotActive": "Gebruiker is niet actief. Neem contact op met jouw beheerder voor meer informatie."
+      "userNotActive": "Gebruiker is niet actief. Neem contact op met jouw beheerder voor meer informatie.",
+      "whitespace": "De loginnaam of het e-mailadres mag geen witruimte bevatten."
     }
   },
   "zitadel": {

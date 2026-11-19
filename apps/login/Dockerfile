@@ -6,6 +6,9 @@ RUN addgroup --system --gid 1001 nodejs && \
 RUN mkdir -p /.env-file && touch /.env-file/.env && chown -R nextjs:nodejs /.env-file
 
 COPY --chown=nextjs:nodejs .next/standalone ./
+# AZDIGI: the standalone server runs from apps/login and serves public/ relative to it; the traced output puts
+# public/ at the root, so static files (checkbox.svg, azdigi/logo.png) were 404 without this copy.
+COPY --chown=nextjs:nodejs public ./apps/login/public
 
 USER nextjs
 ENV HOSTNAME="::" \

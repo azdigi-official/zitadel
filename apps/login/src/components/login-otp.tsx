@@ -1,7 +1,9 @@
 "use client";
 
 import { completeFlowOrGetUrl } from "@/lib/actions/flow";
+import { resetPassword } from "@/lib/actions/password";
 import { updateOrCreateSession } from "@/lib/actions/session";
+import { OtpChannel } from "@/lib/azdigi/otp-channel";
 import { handleServerActionResponse } from "@/lib/client-utils";
 import { create } from "@zitadel/client";
 import { RequestChallengesSchema } from "@zitadel/proto/zitadel/session/v2/challenge_pb";
@@ -13,6 +15,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { Alert, AlertType } from "./alert";
 import { AutoSubmitForm } from "./auto-submit-form";
+import { OtpChannelPicker } from "./azdigi/otp-channel-picker";
 import { BackButton } from "./back-button";
 import { Button, ButtonVariants } from "./button";
 import { TextInput } from "./input";
@@ -28,13 +31,30 @@ type Props = {
   method: string;
   code?: string;
   loginSettings?: LoginSettings;
+  /** AZDIGI: offer the password as an alternative when the code is the first factor (from the organisation's policy) */
+  altPassword?: boolean;
+  /** AZDIGI: offer the passkey as an alternative (from the organisation's policy) */
+  altPasskey?: boolean;
+  /** AZDIGI: channel choice (email · Zalo · SMS) when the user has a verified phone and SMS delivery is enabled */
+  channels?: { current: OtpChannel; phoneMasked: string; available: OtpChannel[] };
 };
 
 type Inputs = {
   code: string;
 };
 
-export function LoginOTP({ loginName, sessionId, requestId, organization, method, code, loginSettings }: Props) {
+export function LoginOTP({
+  loginName,
+  sessionId,
+  requestId,
+  organization,
+  method,
+  code,
+  loginSettings,
+  altPassword = false,
+  altPasskey = false,
+  channels,
+}: Props) {
   const t = useTranslations("otp");
 
   const [error, setError] = useState<string>("");
@@ -47,6 +67,9 @@ export function LoginOTP({ loginName, sessionId, requestId, organization, method
   const router = useRouter();
 
   const initialized = useRef(false);
+  // AZDIGI: the code request still in flight. It rotates the session token, and so does the password or passkey step; if
+  // both run at once the browser can keep the older token, and every later page fails to read the session.
+  const pendingChallenge = useRef<Promise<unknown> | null>(null);
 
   const { register, handleSubmit, formState } = useForm<Inputs>({
     mode: "onChange",
@@ -73,16 +96,20 @@ export function LoginOTP({ loginName, sessionId, requestId, organization, method
     }
 
     let response;
+    const request = updateOrCreateSession({
+      loginName,
+      sessionId,
+      organization,
+      challenges,
+      requestId,
+    });
+    pendingChallenge.current = request;
     try {
-      response = await updateOrCreateSession({
-        loginName,
-        sessionId,
-        organization,
-        challenges,
-        requestId,
-      });
+      response = await request;
     } catch {
       return t("errors.couldNotRequestChallenge");
+    } finally {
+      if (pendingChallenge.current === request) pendingChallenge.current = null;
     }
 
     if (response && "retryAfterSeconds" in response && response.retryAfterSeconds) {
@@ -92,10 +119,14 @@ export function LoginOTP({ loginName, sessionId, requestId, organization, method
       return;
     }
 
-    if (response && "error" in response) {
+    if (response && "error" in response && response.error) {
+      // AZDIGI: a refused code request names where to continue (verification, password)
+      if (response.redirect) {
+        router.push(response.redirect);
+      }
       return response.error;
     }
-  }, [method, requestId, loginName, sessionId, organization, t]);
+  }, [method, requestId, loginName, sessionId, organization, t, router]);
 
   useEffect(() => {
     if (resendCooldown <= 0) {
@@ -175,11 +206,46 @@ export function LoginOTP({ loginName, sessionId, requestId, organization, method
       });
 
     if (response && "error" in response && response.error) {
+      if (response.redirect) {
+        router.push(response.redirect);
+      }
       setError(response.error);
       return;
     }
 
     return response;
+  }
+
+  // AZDIGI: "forgot password" from the email-code page (the answer is the same whether or not the account exists)
+  async function forgotPassword() {
+    setError("");
+    setLoading(true);
+    const response = await resetPassword({ loginName: loginName ?? "", organization, requestId })
+      .catch(() => ({ error: t("verify.errors.couldNotSendResetCode") }))
+      .finally(() => setLoading(false));
+    if (response && "error" in response && response.error) {
+      setError(response.error);
+      return;
+    }
+    const params = new URLSearchParams();
+    if (loginName) params.append("loginName", loginName);
+    if (organization) params.append("organization", organization);
+    if (requestId) params.append("requestId", requestId);
+    router.push("/password/set?" + params);
+  }
+
+  async function goTo(path: "/password" | "/passkey") {
+    if (pendingChallenge.current) {
+      setLoading(true);
+      await pendingChallenge.current.catch(() => undefined);
+    }
+    const params = new URLSearchParams();
+    if (loginName) params.append("loginName", loginName);
+    if (sessionId) params.append("sessionId", sessionId);
+    if (organization) params.append("organization", organization);
+    if (requestId) params.append("requestId", requestId);
+    if (path === "/passkey" && altPassword) params.append("altPassword", "true");
+    router.push(path + "?" + params);
   }
 
   function setCodeAndContinue(values: Inputs) {
@@ -218,6 +284,18 @@ export function LoginOTP({ loginName, sessionId, requestId, organization, method
     <>
       {samlData && <AutoSubmitForm url={samlData.url} fields={samlData.fields} />}
       <form className="w-full">
+        {channels && ["email", "sms"].includes(method) && (
+          <OtpChannelPicker
+            current={channels.current}
+            phoneMasked={channels.phoneMasked}
+            available={channels.available}
+            loginName={loginName}
+            organization={organization}
+            requestId={requestId}
+            altPassword={altPassword}
+            onError={setError}
+          />
+        )}
         {["email", "sms"].includes(method) && (
           <Alert type={AlertType.INFO}>
             <div className="flex flex-row">
@@ -229,6 +307,7 @@ export function LoginOTP({ loginName, sessionId, requestId, organization, method
                 type="button"
                 className="text-primary-light-500 hover:text-primary-light-400 dark:text-primary-dark-500 hover:dark:text-primary-dark-400 ml-4 cursor-pointer disabled:cursor-default disabled:text-gray-400 dark:disabled:text-gray-700"
                 onClick={async () => {
+                  setError("");
                   setLoading(true);
                   const challengeError = await updateSessionForOTPChallenge();
                   if (challengeError) {
@@ -265,7 +344,45 @@ export function LoginOTP({ loginName, sessionId, requestId, organization, method
         )}
 
         <div className="mt-8 flex w-full flex-row items-center">
-          <BackButton data-testid="back-button" />
+          {altPassword || altPasskey ? (
+            <div className="flex flex-col items-start gap-1">
+              <div className="flex flex-row gap-2">
+                {altPasskey && (
+                  <Button
+                    type="button"
+                    variant={ButtonVariants.Secondary}
+                    onClick={() => goTo("/passkey")}
+                    data-testid="passkey-button"
+                  >
+                    <Translated i18nKey="verify.usePasskey" namespace="otp" />
+                  </Button>
+                )}
+                {altPassword && (
+                  <Button
+                    type="button"
+                    variant={ButtonVariants.Secondary}
+                    onClick={() => goTo("/password")}
+                    data-testid="password-button"
+                  >
+                    <Translated i18nKey="verify.usePassword" namespace="otp" />
+                  </Button>
+                )}
+              </div>
+              {altPassword && (
+                <button
+                  type="button"
+                  disabled={loading}
+                  onClick={forgotPassword}
+                  className="text-primary-light-500 dark:text-primary-dark-500 text-xs hover:underline disabled:text-gray-400"
+                  data-testid="forgot-password-button"
+                >
+                  <Translated i18nKey="verify.forgotPassword" namespace="otp" />
+                </button>
+              )}
+            </div>
+          ) : (
+            <BackButton data-testid="back-button" />
+          )}
           <span className="flex-grow"></span>
           <Button
             type="submit"

@@ -36,16 +36,18 @@ export function UserAvatar({ loginName, displayName, showDropdown, searchParams 
   }
 
   return (
-    <div className={`flex h-full flex-row items-center border p-[1px] dark:border-white/20 ${userAvatarRoundness}`}>
-      <div>
+    // AZDIGI: a long login name is truncated inside the frame instead of pushing the chooser out of it
+    <div className={`flex h-full min-w-0 flex-row items-center border p-[1px] dark:border-white/20 ${userAvatarRoundness}`}>
+      <div className="shrink-0">
         <Avatar size="small" name={displayName ?? loginName ?? ""} loginName={loginName ?? ""} />
       </div>
-      <span className="text-14px ml-4 max-w-[250px] overflow-hidden pr-4 text-ellipsis">{loginName}</span>
-      <span className="flex-grow"></span>
+      <span title={loginName} className="text-14px ml-4 min-w-0 flex-1 truncate pr-4">
+        {loginName}
+      </span>
       {showDropdown && (
         <Link
           href={"/accounts?" + params}
-          className={`mr-1 ml-4 flex items-center justify-center p-1 transition-all hover:bg-black/10 dark:hover:bg-white/10 ${userAvatarRoundness}`}
+          className={`mr-1 ml-4 flex shrink-0 items-center justify-center p-1 transition-all hover:bg-black/10 dark:hover:bg-white/10 ${userAvatarRoundness}`}
         >
           <ChevronDownIcon className="h-4 w-4" />
         </Link>

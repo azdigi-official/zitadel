@@ -10,8 +10,21 @@ vi.mock("@/lib/server/cookies", () => ({
   getSessionCookieById: vi.fn(),
 }));
 
+// AZDIGI: every grant goes through the guarded wrapper (lib/azdigi/issue.ts, tested there); here it passes the call on
+// so upstream's assertions about the session token still apply
+vi.mock("@/lib/azdigi/issue", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/azdigi/issue")>();
+  const zitadel = await import("@/lib/server/zitadel");
+  return {
+    ...actual,
+    guardedDeviceAuthorization: vi.fn((args: Parameters<typeof zitadel.authorizeOrDenyDeviceAuthorization>[0]) =>
+      zitadel.authorizeOrDenyDeviceAuthorization(args),
+    ),
+  };
+});
+
 vi.mock("@/lib/server/session", () => ({
-  isSessionValid: vi.fn(),
+  sessionVerdict: vi.fn(),
   loadSession: vi.fn(),
 }));
 
@@ -22,10 +35,6 @@ vi.mock("@/lib/server/device-code-check", () => ({
 
 vi.mock("@/lib/server/service-url", () => ({
   getServiceConfig: vi.fn(() => ({ serviceConfig: { baseUrl: "https://example.com" } })),
-}));
-
-vi.mock("@/lib/actions/loginname", () => ({
-  sendLoginname: vi.fn(),
 }));
 
 vi.mock("next-intl/server", () => ({
@@ -53,8 +62,7 @@ describe("device authorization actions", () => {
   let getDeviceAuthorizationRequest: any;
   let loadSession: any;
   let getSessionCookieById: any;
-  let isSessionValid: any;
-  let sendLoginname: any;
+  let sessionVerdict: any;
   let checkDeviceCodeCheckCookie: any;
   let deleteDeviceCodeCheckCookie: any;
 
@@ -63,22 +71,20 @@ describe("device authorization actions", () => {
     const zitadel = await import("@/lib/server/zitadel");
     const cookies = await import("@/lib/server/cookies");
     const sessionLib = await import("@/lib/server/session");
-    const loginname = await import("@/lib/actions/loginname");
     const deviceCodeCheck = await import("@/lib/server/device-code-check");
 
     authorizeOrDenyDeviceAuthorization = vi.mocked(zitadel.authorizeOrDenyDeviceAuthorization);
     getDeviceAuthorizationRequest = vi.mocked(zitadel.getDeviceAuthorizationRequest);
     loadSession = vi.mocked(sessionLib.loadSession);
     getSessionCookieById = vi.mocked(cookies.getSessionCookieById);
-    isSessionValid = vi.mocked(sessionLib.isSessionValid);
-    sendLoginname = vi.mocked(loginname.sendLoginname);
+    sessionVerdict = vi.mocked(sessionLib.sessionVerdict);
     checkDeviceCodeCheckCookie = vi.mocked(deviceCodeCheck.checkDeviceCodeCheckCookie);
     deleteDeviceCodeCheckCookie = vi.mocked(deviceCodeCheck.deleteDeviceCodeCheckCookie);
 
     getSessionCookieById.mockResolvedValue(cookie);
     loadSession.mockResolvedValue(session);
     checkDeviceCodeCheckCookie.mockResolvedValue(true);
-    isSessionValid.mockResolvedValue(true);
+    sessionVerdict.mockResolvedValue({ ok: true });
     getDeviceAuthorizationRequest.mockResolvedValue({
       deviceAuthorizationRequest: { id: "device-request-1", appName: "My Device" },
     });
@@ -150,18 +156,16 @@ describe("device authorization actions", () => {
       expect(authorizeOrDenyDeviceAuthorization).not.toHaveBeenCalled();
     });
 
-    test("returns a redirect into the login funnel and does not approve when the session is not valid", async () => {
-      isSessionValid.mockResolvedValue(false);
-      sendLoginname.mockResolvedValue({ redirect: "/password?loginName=user%40example.com" });
+    test("AZDIGI: a refused session continues at the step the policy names and is not approved", async () => {
+      // e.g. a staff password session whose second factor has expired: back to /mfa, not to the password page
+      sessionVerdict.mockResolvedValue({ ok: false, reason: "second-factor-missing", next: "mfa" });
 
       const res = await approveDeviceAuthorization({ userCode: "ABCD-1234", sessionId: "session-1" });
 
-      expect(sendLoginname).toHaveBeenCalledWith({
-        loginName: "user@example.com",
-        organization: "org-1",
-        requestId: "device_ABCD-1234",
+      expect(res).toEqual({
+        redirect: "/mfa?loginName=user%40example.com&organization=org-1&requestId=device_ABCD-1234",
       });
-      expect(res).toEqual({ redirect: "/password?loginName=user%40example.com" });
+      expect(getDeviceAuthorizationRequest).not.toHaveBeenCalled();
       expect(authorizeOrDenyDeviceAuthorization).not.toHaveBeenCalled();
     });
   });

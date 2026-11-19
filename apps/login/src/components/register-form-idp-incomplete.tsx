@@ -57,6 +57,8 @@ export function RegisterFormIDPIncomplete({
   });
 
   const t = useTranslations("register");
+  // AZDIGI: an email / user name is a login name and never contains whitespace
+  const tLoginname = useTranslations("loginname");
   const router = useRouter();
 
   const [loading, setLoading] = useState<boolean>(false);
@@ -68,7 +70,7 @@ export function RegisterFormIDPIncomplete({
     try {
       const response = await registerUserAndLinkToIDP({
         idpUserName: idpUserName ? idpUserName : values.username,
-        email: values.email,
+        email: values.email.trim(),
         firstName: values.firstname,
         lastName: values.lastname,
         organization: organization,
@@ -99,7 +101,11 @@ export function RegisterFormIDPIncomplete({
                 autoComplete="username"
                 autoFocus
                 required
-                {...register("username", { required: "Username is required" })}
+                {...register("username", {
+                  required: "Username is required",
+                  setValueAs: (value: string) => value.trim(),
+                  validate: (value) => !/\s/.test(value.trim()) || tLoginname("errors.whitespace"),
+                })}
                 label="Username"
                 error={errors.username?.message as string}
                 data-testid="username-text-input"
@@ -136,7 +142,11 @@ export function RegisterFormIDPIncomplete({
               type="email"
               autoComplete="email"
               required
-              {...register("email", { required: t("required.email") })}
+              {...register("email", {
+                required: t("required.email"),
+                setValueAs: (value: string) => value.trim(),
+                validate: (value) => !/\s/.test(value.trim()) || tLoginname("errors.whitespace"),
+              })}
               label={t("labels.email")}
               error={errors.email?.message as string}
               data-testid="email-text-input"

@@ -1,6 +1,9 @@
 "use server";
 
 import { completeFlowOrGetUrl } from "@/lib/actions/flow";
+import { hidingUnknownAccounts, withMinimumDuration } from "@/lib/azdigi/decoy";
+import { estimateUnlockAt, orgKindFromSettings } from "@/lib/azdigi/lockout";
+import { isOtpFirstOrg } from "@/lib/azdigi/org-lookup";
 import { equalsIgnoreCase } from "@/lib/server/auth-utils";
 import { getSessionCookieById, getSessionCookieByLoginName } from "@/lib/server/cookies";
 import { isClassifiedError } from "@/lib/server/grpc/interceptors/error-classification";
@@ -16,6 +19,7 @@ import {
   checkUserVerification,
 } from "@/lib/server/verify-helper";
 import {
+  addOTPEmail,
   getLockoutSettings,
   getLoginSettings,
   getPasswordExpirySettings,
@@ -31,7 +35,7 @@ import { Code, create, Duration } from "@zitadel/client";
 import { Checks, ChecksSchema } from "@zitadel/proto/zitadel/session/v2/session_service_pb";
 import { LoginSettings } from "@zitadel/proto/zitadel/settings/v2/login_settings_pb";
 import { User, UserState } from "@zitadel/proto/zitadel/user/v2/user_pb";
-import { SetPasswordRequestSchema } from "@zitadel/proto/zitadel/user/v2/user_service_pb";
+import { AuthenticationMethodType, SetPasswordRequestSchema } from "@zitadel/proto/zitadel/user/v2/user_service_pb";
 import { getTranslations } from "next-intl/server";
 import { headers } from "next/headers";
 
@@ -44,7 +48,12 @@ type ResetPasswordCommand = {
   requestId?: string;
 };
 
+/** AZDIGI: a minimum duration so a fast "unknown" answer (or upstream's 2 s sleep) does not stand out. */
 export async function resetPassword(command: ResetPasswordCommand) {
+  return withMinimumDuration(() => resetPasswordNow(command), 2000, 500);
+}
+
+async function resetPasswordNow(command: ResetPasswordCommand) {
   const _headers = await headers();
   const { serviceConfig } = getServiceConfig(_headers);
 
@@ -53,10 +62,12 @@ export async function resetPassword(command: ResetPasswordCommand) {
   // Get the original host that the user sees with protocol
   const hostWithProtocol = await getPublicHostWithProtocol(_headers);
 
-  const loginSettings = await getLoginSettings({
+  // AZDIGI: the OTP-first organisation answers like ignoreUnknownUsernames (decoy.ts hidingUnknownAccounts)
+  const loginSettings = await hidingUnknownAccounts(
     serviceConfig,
-    organization: command.organization ?? command.defaultOrganization,
-  });
+    await getLoginSettings({ serviceConfig, organization: command.organization ?? command.defaultOrganization }),
+    command.organization ?? command.defaultOrganization,
+  );
 
   if (!loginSettings) {
     return { error: t("errors.couldNotSendResetLink") };
@@ -89,7 +100,11 @@ export async function resetPassword(command: ResetPasswordCommand) {
   const user = searchResult.result[0];
   const humanUser = user.type.case === "human" ? user.type.value : undefined;
 
-  const userLoginSettings = await getLoginSettings({ serviceConfig, organization: user.details?.resourceOwner });
+  const userLoginSettings = await hidingUnknownAccounts(
+    serviceConfig,
+    await getLoginSettings({ serviceConfig, organization: user.details?.resourceOwner }),
+    user.details?.resourceOwner,
+  );
 
   if (userLoginSettings?.disableLoginWithEmail && userLoginSettings?.disableLoginWithPhone) {
     if (!equalsIgnoreCase(user.preferredLoginName, command.loginName)) {
@@ -165,10 +180,12 @@ export async function sendPassword(
   // Perform policy check on context settings first if available, or fetch them if needed
   if (!sessionCookie) {
     if (!loginSettingsByContext) {
-      loginSettingsByContext = await getLoginSettings({
+      // AZDIGI: the OTP-first organisation answers like ignoreUnknownUsernames (decoy.ts hidingUnknownAccounts)
+      loginSettingsByContext = await hidingUnknownAccounts(
         serviceConfig,
-        organization: command.organization ?? command.defaultOrganization,
-      });
+        await getLoginSettings({ serviceConfig, organization: command.organization ?? command.defaultOrganization }),
+        command.organization ?? command.defaultOrganization,
+      );
     }
 
     if (loginSettingsByContext && !loginSettingsByContext.allowLocalAuthentication) {
@@ -221,10 +238,12 @@ export async function sendPassword(
 
   if (!sessionCookie) {
     if (!loginSettingsByContext) {
-      loginSettingsByContext = await getLoginSettings({
+      // AZDIGI: the OTP-first organisation answers like ignoreUnknownUsernames (decoy.ts hidingUnknownAccounts)
+      loginSettingsByContext = await hidingUnknownAccounts(
         serviceConfig,
-        organization: command.organization ?? command.defaultOrganization,
-      });
+        await getLoginSettings({ serviceConfig, organization: command.organization ?? command.defaultOrganization }),
+        command.organization ?? command.defaultOrganization,
+      );
     }
 
     // Force fallback if settings can't be loaded
@@ -270,7 +289,7 @@ export async function sendPassword(
         }
         return { error: t("errors.localAuthenticationNotAllowed") };
       }
-      loginSettingsByUser = userLoginSettings;
+      // AZDIGI: loginSettingsByUser is re-read fresh for the user's organisation below
 
       // recheck login settings after user discovery, as the search might have been done without org scope
       if (userLoginSettings.disableLoginWithEmail && userLoginSettings.disableLoginWithPhone) {
@@ -331,12 +350,18 @@ export async function sendPassword(
             lockoutSettings?.maxPasswordAttempts !== undefined && lockoutSettings?.maxPasswordAttempts > BigInt(0);
           const locked = hasLimit && error.failedAttempts >= lockoutSettings?.maxPasswordAttempts;
           const messageKey = hasLimit ? "errors.failedToAuthenticate" : "errors.failedToAuthenticateNoLimit";
+          // AZDIGI: the expected unlock time only while the unlock worker is on
+          const unlockAt = locked ? estimateUnlockAt(new Date(), orgKindFromSettings(userLoginSettings)) : undefined;
 
           return {
             error: t(messageKey, {
               failedAttempts: error.failedAttempts,
               maxPasswordAttempts: hasLimit ? String(lockoutSettings?.maxPasswordAttempts ?? 0) : "?",
-              lockoutMessage: locked ? t("errors.accountLockedContactAdmin") : "",
+              lockoutMessage: locked
+                ? unlockAt
+                  ? t("errors.accountLockedUntil", { time: unlockAt })
+                  : t("errors.accountLockedContactAdmin")
+                : "",
             }),
           };
         }
@@ -381,12 +406,20 @@ export async function sendPassword(
     return { error: t("errors.couldNotCreateSessionForUser") };
   }
 
-  if (!loginSettingsByUser) {
-    loginSettingsByUser = await getLoginSettings({
-      serviceConfig,
-      organization: command.organization ?? session.factors?.user?.organizationId ?? command.defaultOrganization,
-    });
-  }
+  // AZDIGI: fresh, these settings decide whether a second factor is demanded. They are the settings of the user's own
+  // organisation (upstream's fix: never the context organisation's, a user of a forced-MFA organisation must not skip
+  // the second factor by signing in through another organisation's context).
+  loginSettingsByUser = await getLoginSettings({
+    serviceConfig,
+    organization:
+      session.factors?.user?.organizationId ??
+      sessionCookie.organization ??
+      command.organization ??
+      command.defaultOrganization,
+    fresh: true,
+  });
+
+  const otpFirstOrg = await isOtpFirstOrg(serviceConfig, session.factors?.user?.organizationId);
 
   const humanUser = user.type.case === "human" ? user.type.value : undefined;
 
@@ -442,10 +475,19 @@ export async function sendPassword(
     authMethods,
     command.organization,
     command.requestId,
+    { otpFirstOrg },
   );
 
   if (mfaFactorCheck?.redirect) {
     return mfaFactorCheck;
+  }
+
+  // AZDIGI: a customer who signed in with a password and has a verified email gets the OTP_EMAIL method, so the next
+  // sign-in can be the email code alone
+  if (otpFirstOrg && humanUser?.email?.isVerified && !authMethods.includes(AuthenticationMethodType.OTP_EMAIL)) {
+    await addOTPEmail({ serviceConfig, userId: session.factors.user.id }).catch((error: unknown) => {
+      logger.warn("could not add the OTP_EMAIL method", { userId: session.factors?.user?.id, error: String(error) });
+    });
   }
 
   let result: Awaited<ReturnType<typeof completeFlowOrGetUrl>>;

@@ -13,14 +13,25 @@ export async function checkMFAFactors(
   authMethods: AuthenticationMethodType[],
   organization?: string,
   requestId?: string,
+  options?: { otpFirstOrg?: boolean },
 ) {
-  const availableMultiFactors = authMethods?.filter(
+  let availableMultiFactors = authMethods?.filter(
     (m: AuthenticationMethodType) =>
       m === AuthenticationMethodType.TOTP ||
       m === AuthenticationMethodType.OTP_SMS ||
       m === AuthenticationMethodType.OTP_EMAIL ||
       m === AuthenticationMethodType.U2F,
   );
+
+  // AZDIGI: in an OTP-first organisation OTP_EMAIL (granted for passwordless sign-in) and OTP_SMS (granted when the
+  // customer picks Zalo/SMS as the code channel) are delivery channels, not second factors the user chose: after a
+  // password they are not demanded. Otherwise a customer who once picked Zalo would be sent to /otp/sms on every
+  // password sign-in, also when the phone channel is switched off and no code can arrive there.
+  if (options?.otpFirstOrg && session.factors?.password?.verifiedAt) {
+    availableMultiFactors = availableMultiFactors?.filter(
+      (m) => m !== AuthenticationMethodType.OTP_EMAIL && m !== AuthenticationMethodType.OTP_SMS,
+    );
+  }
 
   const hasAuthenticatedWithPasskey = session.factors?.webAuthN?.verifiedAt && session.factors?.webAuthN?.userVerified;
 

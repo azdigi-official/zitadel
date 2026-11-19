@@ -50,7 +50,8 @@
       "localAuthenticationNotAllowed": "L'authentification locale n'est pas autorisée ! Contactez votre administrateur pour plus d'informations.",
       "passkeysNotAllowed": "Les clés d'accès ne sont pas autorisées ! Contactez votre administrateur pour plus d'informations.",
       "couldNotFindIdentityProvider": "Impossible de trouver le fournisseur d'identité.",
-      "userNotActive": "L'utilisateur n'est pas actif. Contactez votre administrateur pour plus d'informations."
+      "userNotActive": "L'utilisateur n'est pas actif. Contactez votre administrateur pour plus d'informations.",
+      "whitespace": "Le nom de connexion ou l’adresse e-mail ne doit pas contenir d’espaces."
     }
   },
   "zitadel": {

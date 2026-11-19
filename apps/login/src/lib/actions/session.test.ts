@@ -4,9 +4,19 @@ import {
   skipMFAAndContinueWithNextUrl,
   updateOrCreateSession,
 } from "@/lib/actions/session";
+import { resetLimiters } from "@/lib/azdigi/rate-limit";
 import { SessionUpdatedError } from "@/lib/server/challenges";
 import { Code } from "@connectrpc/connect";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+
+// AZDIGI rules (OTP-first, decoy, rate limits) are tested in session-azdigi.test.ts; here they stay out of the way:
+// no minimum duration, no OTP-first organisation, fresh limiters per test
+vi.mock("@/lib/azdigi/decoy", () => ({
+  withMinimumDuration: (run: () => Promise<unknown>) => run(),
+  decoyLoginName: (name: string) => name.trim().toLowerCase(),
+  decoyOrganization: vi.fn(async () => undefined),
+}));
+vi.mock("@/lib/azdigi/org-lookup", () => ({ isOtpFirstOrg: vi.fn(async () => false) }));
 
 vi.mock("@zitadel/client", async () => {
   const { Code } = await import("@connectrpc/connect");
@@ -42,7 +52,7 @@ vi.mock("@/lib/actions/flow", () => ({
 }));
 
 vi.mock("@/lib/server/session", () => ({
-  isSessionValid: vi.fn(),
+  sessionVerdict: vi.fn(),
   loadSession: vi.fn(),
   hasVerifiedPrimaryFactor: vi.fn((session: any) => ({ valid: !!session?.factors?.password?.verifiedAt })),
 }));
@@ -174,6 +184,7 @@ describe("server actions resolve the session from the caller's cookie", () => {
 
     cookies.getSessionCookieById.mockResolvedValue({ ...cookie, organization: "org-1" });
     sessionLib.loadSession.mockResolvedValue(authenticatedSession);
+    resetLimiters();
     zitadel.getLoginSettings.mockResolvedValue({});
     client.completeFlowOrGetUrl.mockResolvedValue({ redirect: "/signedin" });
   });
@@ -220,14 +231,14 @@ describe("server actions resolve the session from the caller's cookie", () => {
 
   describe("continueWithSession", () => {
     test("validates the session loaded from ZITADEL, not a session object from the request", async () => {
-      sessionLib.isSessionValid.mockResolvedValue(true);
+      sessionLib.sessionVerdict.mockResolvedValue({ ok: true });
 
       await continueWithSession({
         sessionId: "session-1",
         factors: { user: { id: "victim-user", loginName: "victim@example.com" } },
       } as any);
 
-      expect(sessionLib.isSessionValid).toHaveBeenCalledWith(expect.objectContaining({ session: authenticatedSession }));
+      expect(sessionLib.sessionVerdict).toHaveBeenCalledWith(expect.objectContaining({ session: authenticatedSession }));
       expect(client.completeFlowOrGetUrl).toHaveBeenCalledWith(
         expect.objectContaining({ loginName: "user@example.com" }),
         undefined,
@@ -240,7 +251,19 @@ describe("server actions resolve the session from the caller's cookie", () => {
       const res = await continueWithSession({ sessionId: "victim-session" });
 
       expect(res).toEqual({ error: "couldNotContinueSession" });
-      expect(sessionLib.isSessionValid).not.toHaveBeenCalled();
+      expect(sessionLib.sessionVerdict).not.toHaveBeenCalled();
+    });
+
+    test("AZDIGI: a refused session continues at the step the policy names, not through sendLoginname", async () => {
+      // a staff password session whose second factor has expired goes back to /mfa
+      sessionLib.sessionVerdict.mockResolvedValue({ ok: false, reason: "second-factor-missing", next: "mfa" });
+
+      const res = (await continueWithSession({ sessionId: "session-1", requestId: "oidc_1" })) as { redirect: string };
+
+      expect(res.redirect).toMatch(/^\/mfa\?/);
+      expect(res.redirect).toContain("loginName=user%40example.com");
+      expect(res.redirect).toContain("requestId=oidc_1");
+      expect(client.completeFlowOrGetUrl).not.toHaveBeenCalled();
     });
   });
 
@@ -251,7 +274,6 @@ describe("server actions resolve the session from the caller's cookie", () => {
 
       await updateOrCreateSession({
         sessionId: "session-1",
-        organization: "org-with-a-longer-lifetime",
         checks: { password: { password: "guess" }, otpEmail: { code: "123456" } },
         lifetime: { seconds: BigInt(10 * 365 * 24 * 60 * 60), nanos: 0 },
       } as any);
@@ -262,6 +284,17 @@ describe("server actions resolve the session from the caller's cookie", () => {
       expect(command.lifetime).toEqual({ seconds: BigInt(300), nanos: 0 });
       expect(command.checks).toEqual(expect.objectContaining({ otpEmail: { code: "123456" } }));
       expect(command.checks.password).toBeUndefined();
+    });
+
+    test("AZDIGI: refuses a code check that names another organisation than the session's", async () => {
+      const res = await updateOrCreateSession({
+        sessionId: "session-1",
+        organization: "org-with-a-longer-lifetime",
+        checks: { otpEmail: { code: "123456" } },
+      } as any);
+
+      expect(res).toEqual({ error: "couldNotFindSession" });
+      expect(cookieHelpers.setSessionAndUpdateCookie).not.toHaveBeenCalled();
     });
 
     test("gives a TOTP check the second factor lifetime", async () => {
@@ -344,6 +377,15 @@ describe("updateOrCreateSession OTP SMS resend cooldown", () => {
 
     zitadel.getLoginSettings.mockResolvedValue({ secondFactorCheckLifetime: { seconds: BigInt(60) } } as any);
     setSessionAndUpdateCookie.mockResolvedValue({ id: "session-1", factors: {} });
+    // AZDIGI: codes are only sent to / checked for the signed-in user of the caller's cookie
+    vi.mocked((await import("@/lib/server/session")).loadSession).mockResolvedValue({
+      id: "session-1",
+      factors: {
+        user: { id: "user-1", loginName: "user@example.com", organizationId: "org-1" },
+        password: { verifiedAt: { seconds: BigInt(1) } },
+      },
+    } as any);
+    resetLimiters();
   });
 
   afterEach(() => {
@@ -365,7 +407,8 @@ describe("updateOrCreateSession OTP SMS resend cooldown", () => {
     const res = await updateOrCreateSession({ sessionId: "session-1", challenges: { otpSms: {} } as any });
 
     expect(setSessionAndUpdateCookie).toHaveBeenCalledTimes(1);
-    expect(res).toEqual(expect.objectContaining({ sessionId: "session-1", retryAfterSeconds: 30 }));
+    // AZDIGI: asking for a code proves nothing yet, so the answer carries no session data, only the next cooldown
+    expect(res).toEqual({ retryAfterSeconds: 30 });
   });
 
   test("requests the OTP SMS only once when it has to create the session first", async () => {

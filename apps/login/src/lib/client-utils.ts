@@ -1,3 +1,4 @@
+import { navigateAfterAction } from "@/lib/azdigi/navigate";
 import { sanitizeUrl } from "@braintree/sanitize-url";
 
 export type ServerActionResponse =
@@ -27,7 +28,8 @@ export function handleServerActionResponse(
         // which blocks javascript:, data:, file:, blob:, and about: schemes.
         window.location.href = response.redirect; // lgtm[js/client-side-unvalidated-url-redirection]
       } else {
-        router.push(response.redirect);
+        // AZDIGI: lib/azdigi/navigate.ts (a push issued while the server action is still being applied can be dropped)
+        navigateAfterAction(router, response.redirect);
       }
       return true;
     } else {

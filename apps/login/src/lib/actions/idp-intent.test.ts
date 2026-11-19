@@ -6,6 +6,7 @@ import crypto from "crypto";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 // Mock all the dependencies
+vi.mock("@/lib/azdigi/org-lookup", () => ({ isOtpFirstOrg: vi.fn(async () => false) }));
 vi.mock("next/headers", () => ({
   headers: vi.fn(),
 }));
@@ -773,10 +774,11 @@ describe("processIDPCallback", () => {
       // primary-factor branch regardless of configured methods / verification check. This pins
       // the other half of the guard's OR so a refactor cannot silently drop it.
       const future = { seconds: BigInt(Math.floor(Date.now() / 1000) + 3600), nanos: 0 };
+      // AZDIGI: the session must satisfy the organisation's policy (a real session's user check carries verifiedAt)
       mockGetSession.mockResolvedValue({
         session: {
           factors: {
-            user: { id: "user123" },
+            user: { id: "user123", verifiedAt: future },
             password: { verifiedAt: future },
           },
           expirationDate: future,
@@ -792,6 +794,29 @@ describe("processIDPCallback", () => {
 
       expect(mockAddIDPLink).toHaveBeenCalled();
       expect(result.redirect).toBe("https://app.example.com/success");
+    });
+
+    test("AZDIGI: a password alone cannot link an IdP to an account that set up an authenticator", async () => {
+      const future = { seconds: BigInt(Math.floor(Date.now() / 1000) + 3600), nanos: 0 };
+      mockGetSession.mockResolvedValue({
+        session: {
+          factors: {
+            user: { id: "user123", verifiedAt: future },
+            password: { verifiedAt: future },
+          },
+          expirationDate: future,
+        },
+      });
+      mockListAuthenticationMethodTypes.mockResolvedValue({
+        authMethodTypes: [AuthenticationMethodType.PASSWORD, AuthenticationMethodType.TOTP],
+      });
+      mockCheckUserVerification.mockResolvedValue(false);
+      mockGetIDPByID.mockResolvedValue(linkingAllowedIdp);
+
+      const result = await processIDPCallback(linkParams);
+
+      expect(mockAddIDPLink).not.toHaveBeenCalled();
+      expect(result.redirect).toContain("linking-failed");
     });
 
     test("should return error redirect when linking fails", async () => {

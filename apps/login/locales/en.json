@@ -1,7 +1,7 @@
 {
   "common": {
     "back": "Back",
-    "title": "Login with Zitadel"
+    "title": "Sign in to AZDIGI"
   },
   "accounts": {
     "title": "Accounts",
@@ -50,7 +50,11 @@
       "localAuthenticationNotAllowed": "Local authentication is not allowed! Contact your administrator for more information.",
       "passkeysNotAllowed": "Passkeys not allowed! Contact your administrator for more information.",
       "couldNotFindIdentityProvider": "Could not find identity provider.",
-      "userNotActive": "User is not active. Contact your administrator for more information."
+      "userNotActive": "User is not active. Contact your administrator for more information.",
+      "whitespace": "Login name or email must not contain whitespace.",
+      "noUsableAuthMethod": "This account has no sign-in method that can be used here. Contact support.",
+      "userLocked": "This account is locked. Contact support to unlock it.",
+      "userLockedUntil": "This account is locked until about {time, time, short}."
     }
   },
   "zitadel": {
@@ -154,7 +158,8 @@
       "passwordVerificationMissing": "Password verification is missing.",
       "passwordVerificationTooOld": "Password verification is too old. Please verify your password again.",
       "passwordResetNotAllowed": "Password reset is not allowed. Contact your administrator for more information.",
-      "localAuthenticationNotAllowed": "Local authentication is not allowed! Contact your administrator for more information."
+      "localAuthenticationNotAllowed": "Local authentication is not allowed! Contact your administrator for more information.",
+      "accountLockedUntil": " The account is locked until about {time, time, short}."
     }
   },
   "idp": {
@@ -249,7 +254,16 @@
       },
       "required": {
         "code": "This field is required"
-      }
+      },
+      "totpAfterSetupTitle": "Authenticator app set up",
+      "totpAfterSetupDescription": "To finish signing in, open your authenticator app again and enter the code it shows now (it changes every 30 seconds).",
+      "emailVerifiedTitle": "Email verified successfully",
+      "afterVerificationDescription": "Next, enter the new sign-in code sent to your email to finish signing in. This is different from the email verification code you just used.",
+      "firstFactorTitle": "Sign in with a code",
+      "emailFirstDescription": "We sent a one-time code to your email address. Enter it to sign in.",
+      "usePassword": "Use password instead",
+      "forgotPassword": "Forgot your password?",
+      "usePasskey": "Use passkey"
     },
     "set": {
       "title": "Set up 2-Factor",
@@ -279,6 +293,18 @@
       "couldNotAddSms": "Code via SMS could not be added.",
       "emailNotVerified": "Verify your email address before adding codes via email.",
       "phoneNotVerified": "Verify your phone number before adding codes via SMS."
+    },
+    "channel": {
+      "title": "Receive the code via",
+      "email": "Email",
+      "zalo": "Zalo ({phone})",
+      "sms": "SMS ({phone})",
+      "errors": {
+        "unknownChannel": "Unknown channel.",
+        "noSession": "Could not find a session. Enter your login name first.",
+        "phoneNotVerified": "No verified phone number on this account.",
+        "couldNotStore": "Could not save the channel. Try again."
+      }
     }
   },
   "passkey": {
@@ -326,7 +352,8 @@
   "register": {
     "methods": {
       "passkey": "Passkey",
-      "password": "Password"
+      "password": "Password",
+      "otp": "Email code"
     },
     "disabled": {
       "title": "Registration disabled",
@@ -337,7 +364,7 @@
       "description": "Provide email, first and last name to register."
     },
     "title": "Register",
-    "description": "Create your Zitadel account.",
+    "description": "Create your AZDIGI account.",
     "noMethodAvailableWarning": "No authentication method available. Please contact your administrator.",
     "selectMethod": "Select the method you would like to authenticate",
     "agreeTo": "To register you must agree to the terms and conditions",
@@ -374,7 +401,8 @@
       "couldNotLinkIDP": "Could not link IDP to user",
       "couldNotRegisterUser": "Could not register user",
       "sessionMismatch": "The registration was started in another browser. Please sign in with your identity provider again."
-    }
+    },
+    "help": "Help"
   },
   "invite": {
     "title": "Invite User",
@@ -433,7 +461,17 @@
       "couldNotResendInvite": "Could not resend invite",
       "inviteSendFailed": "Failed to send invitation email",
       "emailSendFailed": "Failed to send verification email",
-      "contextMissing": "An error occurred. Please try again."
+      "contextMissing": "An error occurred. Please try again.",
+      "couldNotFindSession": "Could not find a session. Enter your login name first.",
+      "couldNotUpdateSession": "Could not update the session.",
+      "otpFirstNotAllowed": "Signing in with a code is not available for this account. Continue with your password.",
+      "tooManyCodeRequests": "Too many codes were requested. Try again in {minutes} minutes.",
+      "tooManyCodeAttempts": "Too many wrong codes. Request a new code in {minutes} minutes.",
+      "codeUnavailable": "This session no longer has an active code. Request a new code and use the latest one.",
+      "codeInvalid": "The code is not valid. {remaining} attempts left before a new code is required.",
+      "userLocked": "This account is locked. Contact support to unlock it.",
+      "userLockedUntil": "This account is locked until about {time, time, short}.",
+      "couldNotSendResetCode": "Could not send the password reset code."
     }
   },
   "authenticator": {
@@ -486,6 +524,112 @@
     "failedLoading": "Failed to load data. Please try again.",
     "tryagain": "Try Again",
     "couldNotContinueSession": "Could not continue with session - missing user information",
-    "couldNotClearSession": "Could not end the session. Please try again."
+    "couldNotClearSession": "Could not end the session. Please try again.",
+    "backToLogin": "Back to sign in"
+  },
+  "denied": {
+    "title": "Access not possible",
+    "switchAccount": "Sign in with another account",
+    "support": "Need help? Contact",
+    "reasons": {
+      "missing_email": "Your account has no email address, so it cannot be used for this system.",
+      "principal_not_found": "No customer account is linked to this email address in the system.",
+      "provider_identity_not_linked": "This sign-in is not yet linked to your customer account.",
+      "client_deleted": "The customer account linked to this sign-in has been deleted.",
+      "client_user_inactive": "Your user in this system is inactive.",
+      "client_user_provider_locked": "Your user in this system is locked.",
+      "client_user_provider_inactive": "Signing in to this system is disabled for your user.",
+      "client_banned": "This customer account has been locked.",
+      "membership_not_found": "You are no longer a member of this customer account.",
+      "client_user_invite_acceptance_required": "Please accept the invitation to this customer account before signing in.",
+      "eligibility_unavailable": "The system cannot check your access right now. Please try again in a few minutes.",
+      "not_eligible": "Your account is not allowed to access this system."
+    }
+  },
+  "azdigiFrame": {
+    "portal": {
+      "title": "One account for every AZDIGI service",
+      "description": "Manage your services, payments and support at AZDIGI Portal.",
+      "ecosystem": "AZDIGI service ecosystem",
+      "caption": "AZDIGI Portal — Your service center"
+    },
+    "signin": {
+      "eyebrow": "AZDIGI account",
+      "title": "Sign in to AZDIGI",
+      "description": "One account to manage your services, invoices and technical support across every AZDIGI application.",
+      "highlight1": "One-time sign-in codes by email or Zalo",
+      "highlight2": "Codes work only once and expire after a few minutes",
+      "highlight3": "AZDIGI never asks for your code by phone or chat"
+    },
+    "register": {
+      "eyebrow": "Create an account",
+      "title": "Create your AZDIGI account",
+      "description": "Sign up once and use every AZDIGI service with the same account.",
+      "highlight1": "Just an email address — no password required",
+      "highlight2": "Verify your email with a code sent to your inbox",
+      "highlight3": "One account for every AZDIGI service"
+    },
+    "setup": {
+      "eyebrow": "Account security",
+      "title": "Set up security",
+      "description": "Add a sign-in method to protect your AZDIGI account.",
+      "highlight1": "Passkey: sign in with your fingerprint, face or security key",
+      "highlight2": "An authenticator app adds a second layer of protection"
+    },
+    "done": {
+      "eyebrow": "AZDIGI account",
+      "title": "All done",
+      "description": "You can return to the application you were using."
+    },
+    "denied": {
+      "eyebrow": "AZDIGI account",
+      "title": "Access not available",
+      "description": "The application you opened does not allow this account yet. See the reason and what to do next."
+    },
+    "signout": {
+      "eyebrow": "AZDIGI account",
+      "title": "Sign out",
+      "description": "Choose the account you want to sign out of on this browser."
+    },
+    "verify": {
+      "eyebrow": "AZDIGI account",
+      "title": "Verify your email",
+      "description": "Enter the code sent to your inbox to verify your email address."
+    },
+    "password": {
+      "eyebrow": "Account security",
+      "title": "Account password",
+      "description": "Set a password to sign in when you are not using a one-time code."
+    }
+  },
+  "azdigiAccount": {
+    "title": "My account",
+    "description": "The ways this account can sign in.",
+    "notice": {
+      "passkey": "Passkey added. You can sign in with it from now on."
+    },
+    "passkeys": {
+      "title": "Passkeys",
+      "none": "No passkey yet.",
+      "unknown": "The passkey list could not be read. Please reload the page.",
+      "unnamed": "Unnamed passkey",
+      "add": "Add a passkey",
+      "addAnother": "Add another passkey"
+    },
+    "password": {
+      "title": "Password",
+      "set": "A password is set.",
+      "unset": "No password is set."
+    },
+    "secondFactors": {
+      "title": "Two-factor authentication",
+      "none": "Two-factor authentication is not turned on.",
+      "totp": "Authenticator app (TOTP code)",
+      "u2f": "Security key",
+      "otpEmail": "Code by email",
+      "otpSms": "Code by phone"
+    },
+    "signOut": "Sign out",
+    "continue": "Back to the application"
   }
 }

@@ -37,6 +37,13 @@ vi.mock("next/headers", () => ({
   headers: vi.fn(() => new Headers()),
 }));
 
+// AZDIGI: the page sends a refused session back to the sign-in
+vi.mock("next/navigation", () => ({
+  redirect: vi.fn((url: string) => {
+    throw new Error(`NEXT_REDIRECT ${url}`);
+  }),
+}));
+
 const session = {
   id: "session-1",
   factors: { user: { id: "user-1", loginName: "user@example.com", displayName: "User", organizationId: "org-1" } },
@@ -104,16 +111,17 @@ describe("otp set page", () => {
     expect(forms[0].props.urlToContinue).toBe(`/otp/${method}?loginName=user%40example.com`);
   });
 
-  test("hides the confirmation and shows the error when enrollment is not authorized", async () => {
+  test("AZDIGI: a session the enrolment gate refuses goes back to the sign-in; nothing is added or registered", async () => {
     vi.mocked(guard.getEnrollmentAuthorizationError).mockResolvedValue("You have to authenticate");
 
-    const result = await Page({
-      params: Promise.resolve({ method: "email" }),
-      searchParams: Promise.resolve({}),
-    });
-
-    expect(findElements(result, OTPAddForm)).toHaveLength(0);
-    expect(JSON.stringify(result)).toContain("You have to authenticate");
+    await expect(
+      Page({
+        params: Promise.resolve({ method: "email" }),
+        searchParams: Promise.resolve({ loginName: "user@example.com", organization: "org-1", requestId: "oidc_1" }),
+      }),
+    ).rejects.toThrow("NEXT_REDIRECT /loginname?loginName=user%40example.com&organization=org-1&requestId=oidc_1");
+    expect(addOTP).not.toHaveBeenCalled();
+    expect(zitadel.registerTOTP).not.toHaveBeenCalled();
   });
 
   test("renders an alert instead of the confirmation without a session", async () => {

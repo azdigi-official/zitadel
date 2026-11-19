@@ -7,6 +7,7 @@ import { getValidLocaleFromUILocales } from "@/lib/server/auth-utils";
 import { getLanguageCookie, setLanguageCookie, type Cookie } from "@/lib/server/cookies";
 
 import { sendLoginname } from "@/lib/actions/loginname";
+import { guardedCreateCallback, guardedCreateResponse, isPolicyRejected } from "@/lib/azdigi/issue";
 import { shouldUILocalesOverrideCookie } from "@/lib/i18n";
 import { idpTypeToSlug } from "@/lib/idp";
 import { buildCSP } from "@/lib/server/csp";
@@ -14,8 +15,6 @@ import { createLogger } from "@/lib/server/logger";
 import { constructUrl } from "@/lib/server/service-url";
 import { findValidSession } from "@/lib/server/session";
 import {
-  createCallback,
-  createResponse,
   getActiveIdentityProviders,
   getAuthRequest,
   getOrgsByDomain,
@@ -24,10 +23,7 @@ import {
   ServiceConfig,
   startIdentityProviderFlow,
 } from "@/lib/server/zitadel";
-import { create } from "@zitadel/client";
 import { Prompt } from "@zitadel/proto/zitadel/oidc/v2/authorization_pb";
-import { CreateCallbackRequestSchema, SessionSchema } from "@zitadel/proto/zitadel/oidc/v2/oidc_service_pb";
-import { CreateResponseRequestSchema } from "@zitadel/proto/zitadel/saml/v2/saml_service_pb";
 import { Session } from "@zitadel/proto/zitadel/session/v2/session_pb";
 import { IdentityProviderType } from "@zitadel/proto/zitadel/settings/v2/login_settings_pb";
 import { SecuritySettings } from "@zitadel/proto/zitadel/settings/v2/security_settings_pb";
@@ -453,16 +449,19 @@ export async function handleOIDCFlowInitiation(params: FlowInitiationParams): Pr
         sessionToken: cookie.token,
       };
 
-      const { callbackUrl } = await createCallback({
+      // AZDIGI: prompt=none answers a refused session (policy, organisation scope) like a missing one, never with a 500
+      const callback = await guardedCreateCallback({
         serviceConfig,
-        req: create(CreateCallbackRequestSchema, {
-          authRequestId: requestId.replace("oidc_", ""),
-          callbackKind: {
-            case: "session",
-            value: create(SessionSchema, session),
-          },
-        }),
+        authRequestId: requestId.replace("oidc_", ""),
+        session,
+      }).catch((error: unknown) => {
+        if (isPolicyRejected(error)) return undefined;
+        throw error;
       });
+      if (!callback) {
+        return noSessionResponse;
+      }
+      const { callbackUrl } = callback;
 
       if (!isSafeRedirectUri(callbackUrl)) {
         logger.warn("Blocked unsafe OIDC callback URL (prompt=none)", { callbackUrl });
@@ -525,15 +524,10 @@ export async function handleOIDCFlowInitiation(params: FlowInitiationParams): Pr
       };
 
       try {
-        const { callbackUrl } = await createCallback({
+        const { callbackUrl } = await guardedCreateCallback({
           serviceConfig,
-          req: create(CreateCallbackRequestSchema, {
-            authRequestId: requestId.replace("oidc_", ""),
-            callbackKind: {
-              case: "session",
-              value: create(SessionSchema, session),
-            },
-          }),
+          authRequestId: requestId.replace("oidc_", ""),
+          session,
         });
         if (callbackUrl) {
           if (!isSafeRedirectUri(callbackUrl)) {
@@ -651,15 +645,10 @@ export async function handleSAMLFlowInitiation(params: FlowInitiationParams): Pr
   };
 
   try {
-    const { url, binding } = await createResponse({
+    const { url, binding } = await guardedCreateResponse({
       serviceConfig,
-      req: create(CreateResponseRequestSchema, {
-        samlRequestId: requestId.replace("saml_", ""),
-        responseKind: {
-          case: "session",
-          value: session,
-        },
-      }),
+      samlRequestId: requestId.replace("saml_", ""),
+      session,
     });
 
     if (url && binding.case === "redirect") {

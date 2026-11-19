@@ -1,5 +1,6 @@
 import "server-only";
 
+import { accountUrl } from "@/lib/azdigi/account-url";
 import { isSafeRedirectUri } from "@/lib/client-utils";
 import { getPublicHostWithProtocol } from "@/lib/server/host";
 import { headers } from "next/headers";
@@ -71,6 +72,17 @@ export async function getNextUrl(
 
   // OIDC/SAML flows are now handled by completeAuthFlowAction() server action
   // This function only handles device flows and fallback navigation
+
+  // AZDIGI: a flow that did not start at an application ends at the account page (what this account signs in with,
+  // and a button on to the organisation's default redirect) instead of jumping to that redirect or to /signedin.
+  // An operator's DEFAULT_REDIRECT_URI still wins.
+  if (!process.env.DEFAULT_REDIRECT_URI) {
+    return accountUrl({
+      ...("sessionId" in command ? { sessionId: command.sessionId } : {}),
+      ...("loginName" in command ? { loginName: command.loginName } : {}),
+      organization: command.organization,
+    });
+  }
 
   const result = await resolveRedirectUri(command, defaultRedirectUri);
   console.log("getNextUrl: Resolved redirect URI:", result);

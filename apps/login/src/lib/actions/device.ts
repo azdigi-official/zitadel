@@ -1,11 +1,11 @@
 "use server";
 
-import { sendLoginname } from "@/lib/actions/loginname";
+import { guardedDeviceAuthorization, isPolicyRejected, redirectForVerdict } from "@/lib/azdigi/issue";
 import { getSessionCookieById } from "@/lib/server/cookies";
 import { checkDeviceCodeCheckCookie, deleteDeviceCodeCheckCookie } from "@/lib/server/device-code-check";
 import { getServiceConfig } from "@/lib/server/service-url";
-import { isSessionValid, loadSession } from "@/lib/server/session";
-import { authorizeOrDenyDeviceAuthorization, getDeviceAuthorizationRequest } from "@/lib/server/zitadel";
+import { loadSession, sessionVerdict } from "@/lib/server/session";
+import { getDeviceAuthorizationRequest } from "@/lib/server/zitadel";
 import { getTranslations } from "next-intl/server";
 import { headers } from "next/headers";
 
@@ -58,24 +58,14 @@ export async function approveDeviceAuthorization(command: DeviceAuthorizationCom
   }
 
   const { userCode, organization } = command;
-  const { serviceConfig, t, cookie, session, user } = consent;
+  const { serviceConfig, t, cookie, session } = consent;
 
-  // Validate the session (including MFA) before handing out a token to the device.
-  const valid = await isSessionValid({ serviceConfig, session });
+  // Validate the session (including MFA) before handing out a token to the device. AZDIGI: a refused session continues
+  // at the step the policy names, like continueWithSession, never through a blind sendLoginname.
+  const verdict = await sessionVerdict({ serviceConfig, session });
 
-  if (!valid) {
-    // Send the user through the login funnel, the same way continueWithSession does.
-    const res = await sendLoginname({
-      loginName: user.loginName,
-      organization: user.organizationId,
-      requestId: `device_${userCode}`,
-    });
-
-    if (res && "redirect" in res && res.redirect) {
-      return { redirect: res.redirect };
-    }
-
-    return { error: t("sessionExpired") };
+  if (!verdict.ok) {
+    return { redirect: redirectForVerdict(verdict, session, `device_${userCode}`) };
   }
 
   const { deviceAuthorizationRequest } = await getDeviceAuthorizationRequest({ serviceConfig, userCode });
@@ -84,11 +74,19 @@ export async function approveDeviceAuthorization(command: DeviceAuthorizationCom
     return { error: t("noDeviceRequest") };
   }
 
-  await authorizeOrDenyDeviceAuthorization({
-    serviceConfig,
-    deviceAuthorizationId: deviceAuthorizationRequest.id,
-    session: { sessionId: cookie.id, sessionToken: cookie.token },
-  });
+  // AZDIGI: the organisation's policy is checked again with the session token right before the grant
+  try {
+    await guardedDeviceAuthorization({
+      serviceConfig,
+      deviceAuthorizationId: deviceAuthorizationRequest.id,
+      session: { sessionId: cookie.id, sessionToken: cookie.token },
+    });
+  } catch (error: unknown) {
+    if (isPolicyRejected(error)) {
+      return { redirect: redirectForVerdict(error.verdict, error.session ?? session, `device_${userCode}`) };
+    }
+    throw error;
+  }
 
   await deleteDeviceCodeCheckCookie();
 
@@ -118,7 +116,7 @@ export async function denyDeviceAuthorization(command: DeviceAuthorizationComman
   }
 
   // without a session, the device auth request is denied
-  const response = await authorizeOrDenyDeviceAuthorization({
+  const response = await guardedDeviceAuthorization({
     serviceConfig,
     deviceAuthorizationId: deviceAuthorizationRequest.id,
   });

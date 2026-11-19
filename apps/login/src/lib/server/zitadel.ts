@@ -111,6 +111,9 @@ export async function getHostedLoginTranslation({
     return settingsService
       .getHostedLoginTranslation(
         {
+          // AZDIGI: only the overrides set on the org/instance; without this the API returns Zitadel's complete English
+          // bundle for any locale it does not ship (vi), which would overwrite our translation
+          ignoreInheritance: true,
           level: organization
             ? {
                 case: "organizationId",
@@ -180,8 +183,11 @@ export async function getInstanceId({ serviceConfig }: WithServiceConfig) {
 export async function getLoginSettings({
   serviceConfig,
   organization,
+  fresh,
 }: WithServiceConfig<{
   organization?: string;
+  /** AZDIGI: bypass the settings cache for decisions that gate authentication (policy, OTP-first, isSessionValid) */
+  fresh?: boolean;
 }>) {
   const fetcher = async () => {
     const settingsService: Client<typeof SettingsService> = await createServiceForHost(SettingsService, serviceConfig);
@@ -190,6 +196,10 @@ export async function getLoginSettings({
       .getLoginSettings({ ctx: makeReqCtx(organization) }, {})
       .then((resp) => (resp.settings ? resp.settings : undefined));
   };
+
+  if (fresh) {
+    return fetcher();
+  }
 
   return freshCache(
     instanceCacheKey(serviceConfig, `getLoginSettings-${organization || "instance"}`),
@@ -248,6 +258,29 @@ export async function listIDPLinks({ serviceConfig, userId }: WithServiceConfig<
   const userService: Client<typeof UserService> = await createServiceForHost(UserService, serviceConfig);
 
   return userService.listIDPLinks({ userId }, {});
+}
+
+/** AZDIGI: user metadata through the v2 user service (the login client may write it; checked 04/10/2026). */
+export async function setUserMetadata({
+  serviceConfig,
+  userId,
+  key,
+  value,
+}: WithServiceConfig<{ userId: string; key: string; value: string }>) {
+  const userService: Client<typeof UserService> = await createServiceForHost(UserService, serviceConfig);
+
+  return userService.setUserMetadata({ userId, metadata: [{ key, value: new TextEncoder().encode(value) }] }, {});
+}
+
+export async function getUserMetadata({ serviceConfig, userId, key }: WithServiceConfig<{ userId: string; key: string }>) {
+  const userService: Client<typeof UserService> = await createServiceForHost(UserService, serviceConfig);
+
+  const resp = await userService.listUserMetadata(
+    { userId, filters: [{ filter: { case: "keyFilter", value: { key } } }] },
+    {},
+  );
+  const entry = resp.metadata?.find((m) => m.key === key);
+  return entry?.value ? new TextDecoder().decode(entry.value) : undefined;
 }
 
 export async function addOTPEmail({ serviceConfig, userId }: WithServiceConfig<{ userId: string }>) {

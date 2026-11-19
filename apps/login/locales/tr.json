@@ -50,7 +50,8 @@
       "localAuthenticationNotAllowed": "Yerel kimlik doğrulamasına izin verilmiyor! Daha fazla bilgi için yöneticinize başvurun.",
       "passkeysNotAllowed": "Passkey'ler izin verilmiyor! Daha fazla bilgi için yöneticinizle iletişime geçin.",
       "couldNotFindIdentityProvider": "Kimlik sağlayıcı bulunamadı.",
-      "userNotActive": "Kullanıcı aktif değil. Daha fazla bilgi için yöneticinizle iletişime geçin."
+      "userNotActive": "Kullanıcı aktif değil. Daha fazla bilgi için yöneticinizle iletişime geçin.",
+      "whitespace": "Giriş adı veya e-posta adresi boşluk içeremez."
     }
   },
   "zitadel": {

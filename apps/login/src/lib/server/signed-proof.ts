@@ -14,7 +14,8 @@ const VERSION = "v1";
  * Purposes a signed proof can be issued for. Each purpose gets its own HKDF-derived key, so a proof
  * issued for one purpose can never be replayed as a proof for another one.
  */
-export type SignedProofPurpose = "verification-check" | "idp-flow" | "device-code";
+// AZDIGI: "azdigi-passkey-registration" binds a code-started passkey registration to its browser (lib/azdigi/passkey-registration-proof.ts)
+export type SignedProofPurpose = "verification-check" | "idp-flow" | "device-code" | "azdigi-passkey-registration";
 
 function computeSignature(secret: string, purpose: SignedProofPurpose, fields: string[], expiresAt: number): string {
   // JSON array encoding keeps the fields unambiguous (no delimiter injection through any field)

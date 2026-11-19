@@ -3,7 +3,7 @@ import { DynamicTheme } from "@/components/dynamic-theme";
 import { RegisterU2f } from "@/components/register-u2f";
 import { Translated } from "@/components/translated";
 import { UserAvatar } from "@/components/user-avatar";
-import { getEnrollmentAuthorizationError } from "@/lib/server/enrollment-guard";
+import { enrolmentAuthorizationError } from "@/lib/azdigi/enrolment-guard";
 import { getServiceConfig } from "@/lib/server/service-url";
 import { loadMostRecentSession } from "@/lib/server/session";
 import { getBrandingSettings } from "@/lib/server/zitadel";
@@ -39,10 +39,11 @@ export default async function Page(props: { searchParams: Promise<Record<string 
   // actions, GHSA-45f2-5q3r-xgg6).
   let enrollmentAuthorized = false;
   if (sessionFactors?.id && sessionFactors.factors?.user?.id) {
-    const enrollmentError = await getEnrollmentAuthorizationError({
+    const enrollmentError = await enrolmentAuthorizationError({
       serviceConfig,
       session: sessionFactors,
       userId: sessionFactors.factors.user.id,
+      kind: "strong",
     });
     enrollmentAuthorized = !enrollmentError;
   }

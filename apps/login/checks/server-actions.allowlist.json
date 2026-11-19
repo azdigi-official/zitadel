@@ -1,4 +1,10 @@
 {
+  "src/lib/actions/azdigi/denied.ts": [
+    "signOutEverywhereOnThisBrowser"
+  ],
+  "src/lib/actions/azdigi/otp-channel.ts": [
+    "setOtpChannel"
+  ],
   "src/lib/actions/device.ts": [
     "approveDeviceAuthorization",
     "denyDeviceAuthorization"
